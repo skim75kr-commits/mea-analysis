@@ -146,6 +146,16 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         color_baseline = self.palette.QUALITATIVE['blue']
         color_stim = self.palette.QUALITATIVE['orange']
 
+        # Get x_max for phase visualization
+        x_max = metric_data['Week'].max()
+
+        # Add differentiation phases
+        self.add_differentiation_phases(ax, x_max, phase_type='week')
+
+        # Optimize Y-axis limits
+        all_y_data = np.concatenate([metric_data['Baseline_Mean'].values, metric_data['Stim_Mean'].values])
+        self.optimize_y_limits(ax, all_y_data, margin=0.15)
+
         # Setup error bar configurations with adjusted markersize for weekly view
         baseline_kwargs = self._setup_errorbar_kwargs(color_baseline, 'Baseline', marker='o')
         baseline_kwargs['markersize'] = 8
@@ -161,6 +171,22 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         ax.errorbar(metric_data['Week'], metric_data['Stim_Mean'],
                    yerr=metric_data['Stim_SE'], **stim_kwargs)
 
+        # Add trend lines with statistics
+        baseline_stats = self.add_trend_line(
+            ax, metric_data['Week'].values, metric_data['Baseline_Mean'].values,
+            color=color_baseline, label='Baseline Trend'
+        )
+        stim_stats = self.add_trend_line(
+            ax, metric_data['Week'].values, metric_data['Stim_Mean'].values,
+            color=color_stim, label='Stim Trend'
+        )
+
+        # Add statistics annotations
+        if baseline_stats:
+            self.add_statistics_annotation(ax, baseline_stats, position='top_left')
+        if stim_stats:
+            self.add_statistics_annotation(ax, stim_stats, position='top_right')
+
         # Formatting
         ax.set_xlabel(f'Week (each = {self.week_size} days)', fontsize=10, fontweight='bold')
         ax.set_ylabel('Value', fontsize=10, fontweight='bold')
@@ -169,7 +195,8 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         ax.set_title(title, fontsize=11, fontweight='bold', pad=10)
 
         # Legend
-        ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9)
+        legend_loc = 'lower right' if (baseline_stats or stim_stats) else 'best'
+        ax.legend(loc=legend_loc, frameon=True, fancybox=False, shadow=False, framealpha=0.9, fontsize=8)
 
         # Grid
         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
@@ -223,9 +250,22 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         # Sort by Week
         metric_data = metric_data.sort_values('Week')
 
+        # Get x_max for phase visualization
+        x_max = metric_data['Week'].max()
+
+        # Add differentiation phases
+        self.add_differentiation_phases(ax, x_max, phase_type='week')
+
+        # Optimize Y-axis limits
+        self.optimize_y_limits(ax, metric_data['Response_Mean'].values, margin=0.15)
+
+        # Add zero reference line
+        ax.axhline(y=0, color='gray', linestyle='--', linewidth=1.5, alpha=0.6, zorder=1, label='Zero Line')
+
         # Setup error bar configuration for response
+        response_color = self.palette.QUALITATIVE['green']
         response_kwargs = self._setup_errorbar_kwargs(
-            self.palette.QUALITATIVE['green'],
+            response_color,
             'Response (Stim - Baseline)',
             marker='o'
         )
@@ -236,8 +276,17 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         ax.errorbar(metric_data['Week'], metric_data['Response_Mean'],
                    yerr=metric_data['Response_SE'], **response_kwargs)
 
-        # Add zero reference line
-        ax.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5, zorder=0)
+        # Add trend line with statistics
+        response_stats = self.add_trend_line(
+            ax, metric_data['Week'].values, metric_data['Response_Mean'].values,
+            color='darkred', label='Response Trend'
+        )
+
+        # Add statistics annotation
+        if response_stats:
+            # Position based on whether slope is positive or negative
+            pos = 'top_right' if response_stats['slope'] > 0 else 'bottom_right'
+            self.add_statistics_annotation(ax, response_stats, position=pos)
 
         # Formatting
         ax.set_xlabel(f'Week (each = {self.week_size} days)', fontsize=10, fontweight='bold')
@@ -247,7 +296,8 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         ax.set_title(title, fontsize=11, fontweight='bold', pad=10)
 
         # Legend
-        ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9)
+        legend_loc = 'upper left' if response_stats and response_stats['slope'] > 0 else 'best'
+        ax.legend(loc=legend_loc, frameon=True, fancybox=False, shadow=False, framealpha=0.9, fontsize=8)
 
         # Grid
         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
