@@ -48,55 +48,52 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         if self.df is None:
             raise ValueError("Data not loaded. Call load_data() first.")
 
-        # Create week column
-        self.df['Week'] = (self.df['DIFF_DAY'] // self.week_size) + 1
+        # Create week column as a temporary calculation without modifying original df
+        temp_df = self.df.copy()
+        temp_df['Week'] = (temp_df['DIFF_DAY'] // self.week_size) + 1
 
-        # Aggregate by week, metric, and light code
-        weekly_data = []
+        # Use efficient pandas groupby aggregation instead of nested loops
+        agg_funcs = {
+            'Baseline': ['mean', 'std', 'count'],
+            'Stim': ['mean', 'std', 'count'],
+            'Response': ['mean', 'std', 'count'],
+            'Pct_Change': 'mean',
+            'DIFF_DAY': ['min', 'max']
+        }
 
-        for light_code in self.df['Light_Code'].unique():
-            light_data = self.df[self.df['Light_Code'] == light_code]
+        # Group by Week, Light_Code, and Metric
+        grouped = temp_df.groupby(['Week', 'Light_Code', 'Metric']).agg(agg_funcs).reset_index()
 
-            for metric in light_data['Metric'].unique():
-                metric_data = light_data[light_data['Metric'] == metric]
+        # Flatten column names
+        grouped.columns = ['_'.join(col).strip('_') for col in grouped.columns.values]
 
-                for week in sorted(metric_data['Week'].unique()):
-                    week_data = metric_data[metric_data['Week'] == week]
+        # Rename columns for clarity
+        rename_dict = {
+            'Baseline_mean': 'Baseline_Mean',
+            'Baseline_std': 'Baseline_Std',
+            'Baseline_count': 'Baseline_Count',
+            'Stim_mean': 'Stim_Mean',
+            'Stim_std': 'Stim_Std',
+            'Stim_count': 'Stim_Count',
+            'Response_mean': 'Response_Mean',
+            'Response_std': 'Response_Std',
+            'Response_count': 'Response_Count',
+            'Pct_Change_mean': 'Pct_Change_Mean',
+            'DIFF_DAY_min': 'Min_Day',
+            'DIFF_DAY_max': 'Max_Day'
+        }
+        grouped.rename(columns=rename_dict, inplace=True)
 
-                    weekly_data.append({
-                        'Week': week,
-                        'Metric': metric,
-                        'Light_Code': light_code,
-                        'Baseline_Mean': week_data['Baseline'].mean(),
-                        'Baseline_Std': week_data['Baseline'].std(),
-                        'Baseline_Count': len(week_data),
-                        'Stim_Mean': week_data['Stim'].mean(),
-                        'Stim_Std': week_data['Stim'].std(),
-                        'Stim_Count': len(week_data),
-                        'Response_Mean': week_data['Response'].mean(),
-                        'Response_Std': week_data['Response'].std(),
-                        'Response_Count': len(week_data),
-                        'Pct_Change_Mean': week_data['Pct_Change'].mean(),
-                        'Min_Day': week_data['DIFF_DAY'].min(),
-                        'Max_Day': week_data['DIFF_DAY'].max()
-                    })
+        # Calculate standard errors (vectorized operation)
+        grouped['Baseline_SE'] = grouped['Baseline_Std'] / np.sqrt(grouped['Baseline_Count'])
+        grouped['Stim_SE'] = grouped['Stim_Std'] / np.sqrt(grouped['Stim_Count'])
+        grouped['Response_SE'] = grouped['Response_Std'] / np.sqrt(grouped['Response_Count'])
 
-        self.weekly_df = pd.DataFrame(weekly_data)
-
-        # Calculate standard errors
-        self.weekly_df['Baseline_SE'] = (
-            self.weekly_df['Baseline_Std'] / np.sqrt(self.weekly_df['Baseline_Count'])
-        )
-        self.weekly_df['Stim_SE'] = (
-            self.weekly_df['Stim_Std'] / np.sqrt(self.weekly_df['Stim_Count'])
-        )
-        self.weekly_df['Response_SE'] = (
-            self.weekly_df['Response_Std'] / np.sqrt(self.weekly_df['Response_Count'])
-        )
+        self.weekly_df = grouped
 
         print(f"\n[OK] Weekly groups created:")
         print(f"    - Week size: {self.week_size} days")
-        print(f"    - Total weeks: {self.weekly_df['Week'].max()}")
+        print(f"    - Total weeks: {self.weekly_df['Week'].max():.0f}")
         print(f"    - Records: {len(self.weekly_df):,}")
 
         return self.weekly_df
@@ -149,41 +146,20 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         color_baseline = self.palette.QUALITATIVE['blue']
         color_stim = self.palette.QUALITATIVE['orange']
 
-        # Plot baseline mean line with error bars
-        ax.errorbar(
-            metric_data['Week'],
-            metric_data['Baseline_Mean'],
-            yerr=metric_data['Baseline_SE'],
-            marker='o',
-            linestyle='-',
-            linewidth=2,
-            markersize=8,
-            color=color_baseline,
-            ecolor=color_baseline,
-            capsize=5,
-            capthick=1.5,
-            label='Baseline',
-            alpha=0.9,
-            zorder=2
-        )
+        # Setup error bar configurations with adjusted markersize for weekly view
+        baseline_kwargs = self._setup_errorbar_kwargs(color_baseline, 'Baseline', marker='o')
+        baseline_kwargs['markersize'] = 8
+        baseline_kwargs['capsize'] = 5
 
-        # Plot stim mean line with error bars
-        ax.errorbar(
-            metric_data['Week'],
-            metric_data['Stim_Mean'],
-            yerr=metric_data['Stim_SE'],
-            marker='s',
-            linestyle='-',
-            linewidth=2,
-            markersize=8,
-            color=color_stim,
-            ecolor=color_stim,
-            capsize=5,
-            capthick=1.5,
-            label='Stim',
-            alpha=0.9,
-            zorder=2
-        )
+        stim_kwargs = self._setup_errorbar_kwargs(color_stim, 'Stim', marker='s')
+        stim_kwargs['markersize'] = 8
+        stim_kwargs['capsize'] = 5
+
+        # Plot baseline and stim mean lines with error bars
+        ax.errorbar(metric_data['Week'], metric_data['Baseline_Mean'],
+                   yerr=metric_data['Baseline_SE'], **baseline_kwargs)
+        ax.errorbar(metric_data['Week'], metric_data['Stim_Mean'],
+                   yerr=metric_data['Stim_SE'], **stim_kwargs)
 
         # Formatting
         ax.set_xlabel(f'Week (each = {self.week_size} days)', fontsize=10, fontweight='bold')
@@ -247,23 +223,18 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         # Sort by Week
         metric_data = metric_data.sort_values('Week')
 
-        # Plot response mean line with error bars
-        ax.errorbar(
-            metric_data['Week'],
-            metric_data['Response_Mean'],
-            yerr=metric_data['Response_SE'],
-            marker='o',
-            linestyle='-',
-            linewidth=2,
-            markersize=8,
-            color=self.palette.QUALITATIVE['green'],
-            ecolor=self.palette.QUALITATIVE['green'],
-            capsize=5,
-            capthick=1.5,
-            label='Response (Stim - Baseline)',
-            alpha=0.9,
-            zorder=2
+        # Setup error bar configuration for response
+        response_kwargs = self._setup_errorbar_kwargs(
+            self.palette.QUALITATIVE['green'],
+            'Response (Stim - Baseline)',
+            marker='o'
         )
+        response_kwargs['markersize'] = 8
+        response_kwargs['capsize'] = 5
+
+        # Plot response mean line with error bars
+        ax.errorbar(metric_data['Week'], metric_data['Response_Mean'],
+                   yerr=metric_data['Response_SE'], **response_kwargs)
 
         # Add zero reference line
         ax.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5, zorder=0)
