@@ -173,7 +173,7 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
 
         # Optimize Y-axis limits after plotting
         all_y_data = np.concatenate([metric_data['Baseline_Mean'].values, metric_data['Stim_Mean'].values])
-        self.optimize_y_limits(ax, all_y_data, margin=0.15)
+        self.optimize_y_limits(ax, all_y_data)
 
         # Add differentiation phases (after Y-axis is set)
         x_max = metric_data['Week'].max()
@@ -248,8 +248,8 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         # Sort by Week
         metric_data = metric_data.sort_values('Week')
 
-        # Add zero reference line
-        ax.axhline(y=0, color='gray', linestyle='--', linewidth=1.5, alpha=0.6, zorder=1, label='Zero Line')
+        # Add zero reference line using helper
+        self.add_zero_line(ax)
 
         # Setup error bar configuration for response
         response_color = self.palette.QUALITATIVE['green']
@@ -272,7 +272,7 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         )
 
         # Optimize Y-axis limits after plotting
-        self.optimize_y_limits(ax, metric_data['Response_Mean'].values, margin=0.15)
+        self.optimize_y_limits(ax, metric_data['Response_Mean'].values)
 
         # Add differentiation phases (after Y-axis is set)
         x_max = metric_data['Week'].max()

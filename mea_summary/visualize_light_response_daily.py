@@ -76,13 +76,9 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
         # Sort by DIFF_DAY
         metric_data = metric_data.sort_values('DIFF_DAY')
 
-        # Group by DIFF_DAY and calculate statistics for baseline and stim
-        grouped_baseline = metric_data.groupby('DIFF_DAY')['Baseline'].agg(['mean', 'std', 'count']).reset_index()
-        grouped_stim = metric_data.groupby('DIFF_DAY')['Stim'].agg(['mean', 'std', 'count']).reset_index()
-
-        # Calculate standard error
-        grouped_baseline['se'] = grouped_baseline['std'] / np.sqrt(grouped_baseline['count'])
-        grouped_stim['se'] = grouped_stim['std'] / np.sqrt(grouped_stim['count'])
+        # Calculate statistics efficiently using base class helper
+        grouped_baseline = self.calculate_grouped_statistics(metric_data, 'DIFF_DAY', 'Baseline')
+        grouped_stim = self.calculate_grouped_statistics(metric_data, 'DIFF_DAY', 'Stim')
 
         # Colors for baseline and stim
         color_baseline = self.palette.QUALITATIVE['blue']
@@ -130,7 +126,7 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
 
         # Optimize Y-axis limits after plotting
         all_y_data = np.concatenate([grouped_baseline['mean'].values, grouped_stim['mean'].values])
-        self.optimize_y_limits(ax, all_y_data, margin=0.15)
+        self.optimize_y_limits(ax, all_y_data)
 
         # Add differentiation phases (after Y-axis is set)
         x_max = grouped_baseline['DIFF_DAY'].max()
@@ -202,9 +198,8 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
         # Sort by DIFF_DAY
         metric_data = metric_data.sort_values('DIFF_DAY')
 
-        # Group by DIFF_DAY and calculate statistics for response
-        grouped = metric_data.groupby('DIFF_DAY')['Response'].agg(['mean', 'std', 'count']).reset_index()
-        grouped['se'] = grouped['std'] / np.sqrt(grouped['count'])
+        # Calculate statistics efficiently using base class helper
+        grouped = self.calculate_grouped_statistics(metric_data, 'DIFF_DAY', 'Response')
 
         # Plot individual points first (if enabled)
         # More efficient for large datasets: adjust alpha instead of hiding points
@@ -220,8 +215,8 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
                 zorder=1
             )
 
-        # Add zero reference line
-        ax.axhline(y=0, color='gray', linestyle='--', linewidth=1.5, alpha=0.6, zorder=1, label='Zero Line')
+        # Add zero reference line using helper
+        self.add_zero_line(ax)
 
         # Plot response mean line with error bars
         response_color = self.palette.QUALITATIVE['green']
@@ -239,7 +234,7 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
         )
 
         # Optimize Y-axis limits after plotting
-        self.optimize_y_limits(ax, grouped['mean'].values, margin=0.15)
+        self.optimize_y_limits(ax, grouped['mean'].values)
 
         # Add differentiation phases (after Y-axis is set)
         x_max = grouped['DIFF_DAY'].max()
