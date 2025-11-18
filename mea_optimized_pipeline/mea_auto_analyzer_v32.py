@@ -1483,19 +1483,31 @@ class CombinedExcelCreator:
     def create(self):
         """Combined Excel 생성"""
         print('\n[COMBINE] Creating combined Excel...')
-        
+
         files = list(self.input_dir.glob('*.xlsx'))
         files = [f for f in files if not f.name.startswith('~$')]
-        
+
         print(f"  Found {len(files)} files to combine")
-        
+
         with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
             # Sheet 1: Index
             index_data = []
             for i, file_path in enumerate(files, 1):
                 df_meta = pd.read_excel(file_path, sheet_name='Metadata')
                 meta = df_meta.iloc[0].to_dict()
-                
+
+                # DIFF_DAY 추출 (Well_Info에서)
+                diff_day_value = ''
+                try:
+                    df_well = pd.read_excel(file_path, sheet_name='Well_Info')
+                    if 'DIFF_DAY' in df_well.columns:
+                        # non-null 값 중 첫 번째 값 사용
+                        diff_day_series = df_well['DIFF_DAY'].dropna()
+                        if len(diff_day_series) > 0:
+                            diff_day_value = diff_day_series.iloc[0]
+                except Exception as e:
+                    print(f"  Warning: Could not read DIFF_DAY from {file_path.name}: {e}")
+
                 index_data.append({
                     'Index': i,
                     'Filename': file_path.name,
@@ -1504,9 +1516,10 @@ class CombinedExcelCreator:
                     'Light_Code': meta.get('LIGHT_CODE', ''),
                     'Exp_Type': meta.get('EXP_TYPE', ''),
                     'Drug': meta.get('DRUG', ''),
-                    'Concentration_MM': meta.get('CONCENTRATION_MM', '')
+                    'Concentration_MM': meta.get('CONCENTRATION_MM', ''),
+                    'DIFF_DAY': diff_day_value
                 })
-            
+
             df_index = pd.DataFrame(index_data)
             df_index.to_excel(writer, sheet_name='Index', index=False)
             
