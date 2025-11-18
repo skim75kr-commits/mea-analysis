@@ -146,16 +146,6 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         color_baseline = self.palette.QUALITATIVE['blue']
         color_stim = self.palette.QUALITATIVE['orange']
 
-        # Get x_max for phase visualization
-        x_max = metric_data['Week'].max()
-
-        # Add differentiation phases
-        self.add_differentiation_phases(ax, x_max, phase_type='week')
-
-        # Optimize Y-axis limits
-        all_y_data = np.concatenate([metric_data['Baseline_Mean'].values, metric_data['Stim_Mean'].values])
-        self.optimize_y_limits(ax, all_y_data, margin=0.15)
-
         # Setup error bar configurations with adjusted markersize for weekly view
         baseline_kwargs = self._setup_errorbar_kwargs(color_baseline, 'Baseline', marker='o')
         baseline_kwargs['markersize'] = 8
@@ -180,6 +170,14 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
             ax, metric_data['Week'].values, metric_data['Stim_Mean'].values,
             color=color_stim, label='Stim Trend'
         )
+
+        # Optimize Y-axis limits after plotting
+        all_y_data = np.concatenate([metric_data['Baseline_Mean'].values, metric_data['Stim_Mean'].values])
+        self.optimize_y_limits(ax, all_y_data)
+
+        # Add differentiation phases (after Y-axis is set)
+        x_max = metric_data['Week'].max()
+        self.add_differentiation_phases(ax, x_max, phase_type='week')
 
         # Add statistics annotations
         if baseline_stats:
@@ -250,17 +248,8 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         # Sort by Week
         metric_data = metric_data.sort_values('Week')
 
-        # Get x_max for phase visualization
-        x_max = metric_data['Week'].max()
-
-        # Add differentiation phases
-        self.add_differentiation_phases(ax, x_max, phase_type='week')
-
-        # Optimize Y-axis limits
-        self.optimize_y_limits(ax, metric_data['Response_Mean'].values, margin=0.15)
-
-        # Add zero reference line
-        ax.axhline(y=0, color='gray', linestyle='--', linewidth=1.5, alpha=0.6, zorder=1, label='Zero Line')
+        # Add zero reference line using helper
+        self.add_zero_line(ax)
 
         # Setup error bar configuration for response
         response_color = self.palette.QUALITATIVE['green']
@@ -281,6 +270,13 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
             ax, metric_data['Week'].values, metric_data['Response_Mean'].values,
             color='darkred', label='Response Trend'
         )
+
+        # Optimize Y-axis limits after plotting
+        self.optimize_y_limits(ax, metric_data['Response_Mean'].values)
+
+        # Add differentiation phases (after Y-axis is set)
+        x_max = metric_data['Week'].max()
+        self.add_differentiation_phases(ax, x_max, phase_type='week')
 
         # Add statistics annotation
         if response_stats:

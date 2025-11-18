@@ -117,6 +117,45 @@ def setup_scientific_style():
     sns.set_palette(list(ScientificPalette.QUALITATIVE.values()))
 
 
+# Constants for visualization settings
+class PlotSettings:
+    """Centralized plot settings and constants"""
+    # Phase colors
+    PHASE_COLORS = {
+        'early': '#E8F4F8',
+        'mid': '#FFF4E6',
+        'late': '#F0F8E8'
+    }
+
+    # Phase boundaries (in days)
+    EARLY_PHASE_END = 7
+    MID_PHASE_END = 14
+
+    # Plot styling
+    PHASE_ALPHA = 0.15
+    PHASE_LABEL_Y_POS = 0.98
+    PHASE_LABEL_FONTSIZE = 7
+
+    TREND_LINE_WIDTH = 2
+    TREND_LINE_ALPHA = 0.7
+
+    ZERO_LINE_WIDTH = 1.5
+    ZERO_LINE_ALPHA = 0.6
+
+    STATS_BOX_FONTSIZE = 8
+    STATS_BOX_ALPHA = 0.5
+
+    ERRORBAR_LINEWIDTH = 2
+    ERRORBAR_MARKERSIZE = 7
+    ERRORBAR_CAPSIZE = 4
+    ERRORBAR_CAPTHICK = 1.5
+
+    # Axis settings
+    Y_MARGIN = 0.15
+    GRID_ALPHA = 0.3
+    GRID_LINEWIDTH = 0.5
+
+
 class BaseLightResponseVisualizer:
     """
     Base class for light response visualization with common functionality
@@ -370,12 +409,12 @@ class BaseLightResponseVisualizer:
         return {
             'marker': marker,
             'linestyle': '-' if is_line else 'none',
-            'linewidth': 2,
-            'markersize': 7,
+            'linewidth': PlotSettings.ERRORBAR_LINEWIDTH,
+            'markersize': PlotSettings.ERRORBAR_MARKERSIZE,
             'color': color,
             'ecolor': color,
-            'capsize': 4,
-            'capthick': 1.5,
+            'capsize': PlotSettings.ERRORBAR_CAPSIZE,
+            'capthick': PlotSettings.ERRORBAR_CAPTHICK,
             'label': label,
             'alpha': 0.9,
             'zorder': 2
@@ -420,35 +459,61 @@ class BaseLightResponseVisualizer:
         phase_type : str
             Type of x-axis ('day' or 'week')
         """
+        # Get phase definitions
         if phase_type == 'day':
-            # Define phases based on differentiation days
-            if x_max <= 20:
-                phases = [
-                    (0, 7, 'Early\nDifferentiation', '#E8F4F8'),
-                    (7, x_max, 'Mid-Late\nDifferentiation', '#FFF4E6')
-                ]
-            else:
-                phases = [
-                    (0, 7, 'Early', '#E8F4F8'),
-                    (7, 14, 'Mid', '#FFF4E6'),
-                    (14, x_max, 'Late', '#F0F8E8')
-                ]
+            phases = BaseLightResponseVisualizer._get_day_phases(x_max)
         else:  # week
-            # Simpler phases for weekly view
-            mid_point = x_max / 2
-            phases = [
-                (0, mid_point, 'Early Phase', '#E8F4F8'),
-                (mid_point, x_max, 'Late Phase', '#FFF4E6')
+            phases = BaseLightResponseVisualizer._get_week_phases(x_max)
+
+        # Add shaded regions and labels
+        x_range = ax.get_xlim()
+        x_range_width = x_range[1] - x_range[0]
+
+        for start, end, label, color in phases:
+            # Add background shading
+            ax.axvspan(start, end, alpha=PlotSettings.PHASE_ALPHA, color=color, zorder=0)
+
+            # Calculate x position as fraction for consistent placement
+            mid_x = (start + end) / 2
+            x_frac = (mid_x - x_range[0]) / x_range_width if x_range_width > 0 else 0.5
+
+            # Add phase label
+            ax.text(x_frac, PlotSettings.PHASE_LABEL_Y_POS, label,
+                   transform=ax.transAxes,
+                   ha='center', va='top',
+                   fontsize=PlotSettings.PHASE_LABEL_FONTSIZE,
+                   style='italic', color='gray',
+                   alpha=0.8, weight='bold',
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                            edgecolor='none', alpha=0.7))
+
+    @staticmethod
+    def _get_day_phases(x_max: float) -> List[Tuple[float, float, str, str]]:
+        """Get phase definitions for daily view"""
+        colors = PlotSettings.PHASE_COLORS
+
+        if x_max <= 20:
+            return [
+                (0, PlotSettings.EARLY_PHASE_END, 'Early', colors['early']),
+                (PlotSettings.EARLY_PHASE_END, x_max, 'Mid-Late', colors['mid'])
+            ]
+        else:
+            return [
+                (0, PlotSettings.EARLY_PHASE_END, 'Early', colors['early']),
+                (PlotSettings.EARLY_PHASE_END, PlotSettings.MID_PHASE_END, 'Mid', colors['mid']),
+                (PlotSettings.MID_PHASE_END, x_max, 'Late', colors['late'])
             ]
 
-        # Add shaded regions
-        for start, end, label, color in phases:
-            ax.axvspan(start, end, alpha=0.15, color=color, zorder=0)
-            # Add phase label at the top
-            mid_x = (start + end) / 2
-            y_pos = ax.get_ylim()[1]
-            ax.text(mid_x, y_pos, label, ha='center', va='bottom',
-                   fontsize=8, style='italic', color='gray', alpha=0.7)
+    @staticmethod
+    def _get_week_phases(x_max: float) -> List[Tuple[float, float, str, str]]:
+        """Get phase definitions for weekly view"""
+        colors = PlotSettings.PHASE_COLORS
+        mid_point = x_max / 2
+
+        return [
+            (0, mid_point, 'Early', colors['early']),
+            (mid_point, x_max, 'Late', colors['mid'])
+        ]
 
     @staticmethod
     def add_trend_line(ax: plt.Axes, x_data: np.ndarray, y_data: np.ndarray,
@@ -474,9 +539,13 @@ class BaseLightResponseVisualizer:
         Returns:
         --------
         Dict
-            Dictionary containing slope, r_squared, and p_value
+            Dictionary containing slope, r_squared, and p_value (None if scipy not available)
         """
-        from scipy import stats
+        try:
+            from scipy import stats
+            scipy_available = True
+        except ImportError:
+            scipy_available = False
 
         # Remove NaN values
         mask = ~(np.isnan(x_data) | np.isnan(y_data))
@@ -495,16 +564,36 @@ class BaseLightResponseVisualizer:
         y_smooth = poly(x_smooth)
 
         # Plot trend line
-        ax.plot(x_smooth, y_smooth, '--', color=color, linewidth=2,
-               alpha=0.7, label=label, zorder=3)
+        ax.plot(x_smooth, y_smooth, '--', color=color,
+               linewidth=PlotSettings.TREND_LINE_WIDTH,
+               alpha=PlotSettings.TREND_LINE_ALPHA,
+               label=label, zorder=3)
 
-        # Calculate statistics for linear fit
-        if degree == 1:
+        # Calculate statistics for linear fit (only if scipy is available)
+        if degree == 1 and scipy_available:
             slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
             return {
                 'slope': slope,
                 'r_squared': r_value**2,
                 'p_value': p_value
+            }
+        elif degree == 1:
+            # Basic statistics without scipy
+            # Calculate slope manually for linear regression
+            x_mean = np.mean(x_clean)
+            y_mean = np.mean(y_clean)
+            slope = np.sum((x_clean - x_mean) * (y_clean - y_mean)) / np.sum((x_clean - x_mean)**2)
+
+            # Calculate R-squared
+            y_pred = coeffs[0] * x_clean + coeffs[1]
+            ss_res = np.sum((y_clean - y_pred)**2)
+            ss_tot = np.sum((y_clean - y_mean)**2)
+            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+            return {
+                'slope': slope,
+                'r_squared': r_squared,
+                'p_value': None  # p-value requires scipy
             }
         return None
 
@@ -528,19 +617,23 @@ class BaseLightResponseVisualizer:
         # Format statistics text
         slope = stats_dict.get('slope', 0)
         r_sq = stats_dict.get('r_squared', 0)
-        p_val = stats_dict.get('p_value', 1)
+        p_val = stats_dict.get('p_value', None)
 
-        # Determine significance
-        if p_val < 0.001:
-            sig = '***'
-        elif p_val < 0.01:
-            sig = '**'
-        elif p_val < 0.05:
-            sig = '*'
-        else:
-            sig = 'ns'
+        # Build text with available statistics
+        text = f'Slope: {slope:.3e}\n$R^2$: {r_sq:.3f}'
 
-        text = f'Slope: {slope:.3e}\n$R^2$: {r_sq:.3f}\np: {p_val:.3e} {sig}'
+        # Add p-value if available (requires scipy)
+        if p_val is not None:
+            # Determine significance
+            if p_val < 0.001:
+                sig = '***'
+            elif p_val < 0.01:
+                sig = '**'
+            elif p_val < 0.05:
+                sig = '*'
+            else:
+                sig = 'ns'
+            text += f'\np: {p_val:.3e} {sig}'
 
         # Position mapping
         pos_map = {
@@ -554,12 +647,15 @@ class BaseLightResponseVisualizer:
 
         # Add text box
         ax.text(x, y, text, transform=ax.transAxes,
-               fontsize=8, verticalalignment=va, horizontalalignment=ha,
-               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+               fontsize=PlotSettings.STATS_BOX_FONTSIZE,
+               verticalalignment=va, horizontalalignment=ha,
+               bbox=dict(boxstyle='round', facecolor='wheat',
+                        alpha=PlotSettings.STATS_BOX_ALPHA),
                zorder=10)
 
     @staticmethod
-    def optimize_y_limits(ax: plt.Axes, y_data: np.ndarray, margin: float = 0.1):
+    def optimize_y_limits(ax: plt.Axes, y_data: np.ndarray,
+                         margin: float = None):
         """
         Optimize Y-axis limits based on data range
 
@@ -569,10 +665,13 @@ class BaseLightResponseVisualizer:
             Axis to optimize
         y_data : np.ndarray
             Y data values
-        margin : float
-            Margin as fraction of data range (0.1 = 10%)
+        margin : float, optional
+            Margin as fraction of data range. If None, uses PlotSettings.Y_MARGIN
         """
-        # Remove NaN values
+        if margin is None:
+            margin = PlotSettings.Y_MARGIN
+
+        # Remove NaN values efficiently
         y_clean = y_data[~np.isnan(y_data)]
 
         if len(y_clean) == 0:
@@ -585,5 +684,44 @@ class BaseLightResponseVisualizer:
         if y_range > 0:
             ax.set_ylim(y_min - margin * y_range, y_max + margin * y_range)
         else:
-            # If all values are the same
+            # If all values are the same, add fixed margin
             ax.set_ylim(y_min - 1, y_max + 1)
+
+    @staticmethod
+    def add_zero_line(ax: plt.Axes):
+        """
+        Add a zero reference line to the plot
+
+        Parameters:
+        -----------
+        ax : plt.Axes
+            Axis to add zero line to
+        """
+        ax.axhline(y=0, color='gray', linestyle='--',
+                  linewidth=PlotSettings.ZERO_LINE_WIDTH,
+                  alpha=PlotSettings.ZERO_LINE_ALPHA,
+                  zorder=1, label='Zero Line')
+
+    @staticmethod
+    def calculate_grouped_statistics(data: pd.DataFrame, group_col: str,
+                                     value_col: str) -> pd.DataFrame:
+        """
+        Calculate statistics (mean, std, count, se) for grouped data
+
+        Parameters:
+        -----------
+        data : pd.DataFrame
+            Input dataframe
+        group_col : str
+            Column to group by
+        value_col : str
+            Column to calculate statistics on
+
+        Returns:
+        --------
+        pd.DataFrame
+            Dataframe with mean, std, count, se columns
+        """
+        grouped = data.groupby(group_col)[value_col].agg(['mean', 'std', 'count']).reset_index()
+        grouped['se'] = grouped['std'] / np.sqrt(grouped['count'])
+        return grouped
