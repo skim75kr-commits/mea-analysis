@@ -309,3 +309,185 @@ class BaseLightResponseVisualizer:
             'label': label,
             'zorder': 1
         }
+
+    @staticmethod
+    def add_differentiation_phases(ax: plt.Axes, x_max: float, phase_type: str = 'day'):
+        """
+        Add visual background shading for differentiation phases
+
+        Parameters:
+        -----------
+        ax : plt.Axes
+            Axis to add phases to
+        x_max : float
+            Maximum x value (day or week number)
+        phase_type : str
+            Type of x-axis ('day' or 'week')
+        """
+        if phase_type == 'day':
+            # Define phases based on differentiation days
+            if x_max <= 20:
+                phases = [
+                    (0, 7, 'Early\nDifferentiation', '#E8F4F8'),
+                    (7, x_max, 'Mid-Late\nDifferentiation', '#FFF4E6')
+                ]
+            else:
+                phases = [
+                    (0, 7, 'Early', '#E8F4F8'),
+                    (7, 14, 'Mid', '#FFF4E6'),
+                    (14, x_max, 'Late', '#F0F8E8')
+                ]
+        else:  # week
+            # Simpler phases for weekly view
+            mid_point = x_max / 2
+            phases = [
+                (0, mid_point, 'Early Phase', '#E8F4F8'),
+                (mid_point, x_max, 'Late Phase', '#FFF4E6')
+            ]
+
+        # Add shaded regions
+        for start, end, label, color in phases:
+            ax.axvspan(start, end, alpha=0.15, color=color, zorder=0)
+            # Add phase label at the top
+            mid_x = (start + end) / 2
+            y_pos = ax.get_ylim()[1]
+            ax.text(mid_x, y_pos, label, ha='center', va='bottom',
+                   fontsize=8, style='italic', color='gray', alpha=0.7)
+
+    @staticmethod
+    def add_trend_line(ax: plt.Axes, x_data: np.ndarray, y_data: np.ndarray,
+                      color: str = 'red', label: str = 'Trend', degree: int = 1):
+        """
+        Add polynomial trend line with statistics
+
+        Parameters:
+        -----------
+        ax : plt.Axes
+            Axis to add trend line to
+        x_data : np.ndarray
+            X coordinates
+        y_data : np.ndarray
+            Y coordinates
+        color : str
+            Color for the trend line
+        label : str
+            Label for the trend line
+        degree : int
+            Degree of polynomial (1=linear, 2=quadratic)
+
+        Returns:
+        --------
+        Dict
+            Dictionary containing slope, r_squared, and p_value
+        """
+        from scipy import stats
+
+        # Remove NaN values
+        mask = ~(np.isnan(x_data) | np.isnan(y_data))
+        x_clean = x_data[mask]
+        y_clean = y_data[mask]
+
+        if len(x_clean) < 2:
+            return None
+
+        # Fit polynomial
+        coeffs = np.polyfit(x_clean, y_clean, degree)
+        poly = np.poly1d(coeffs)
+
+        # Generate smooth curve
+        x_smooth = np.linspace(x_clean.min(), x_clean.max(), 100)
+        y_smooth = poly(x_smooth)
+
+        # Plot trend line
+        ax.plot(x_smooth, y_smooth, '--', color=color, linewidth=2,
+               alpha=0.7, label=label, zorder=3)
+
+        # Calculate statistics for linear fit
+        if degree == 1:
+            slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
+            return {
+                'slope': slope,
+                'r_squared': r_value**2,
+                'p_value': p_value
+            }
+        return None
+
+    @staticmethod
+    def add_statistics_annotation(ax: plt.Axes, stats_dict: Dict, position: str = 'top_right'):
+        """
+        Add statistics annotation to plot
+
+        Parameters:
+        -----------
+        ax : plt.Axes
+            Axis to add annotation to
+        stats_dict : Dict
+            Dictionary with 'slope', 'r_squared', 'p_value'
+        position : str
+            Position for annotation ('top_right', 'top_left', 'bottom_right', 'bottom_left')
+        """
+        if stats_dict is None:
+            return
+
+        # Format statistics text
+        slope = stats_dict.get('slope', 0)
+        r_sq = stats_dict.get('r_squared', 0)
+        p_val = stats_dict.get('p_value', 1)
+
+        # Determine significance
+        if p_val < 0.001:
+            sig = '***'
+        elif p_val < 0.01:
+            sig = '**'
+        elif p_val < 0.05:
+            sig = '*'
+        else:
+            sig = 'ns'
+
+        text = f'Slope: {slope:.3e}\n$R^2$: {r_sq:.3f}\np: {p_val:.3e} {sig}'
+
+        # Position mapping
+        pos_map = {
+            'top_right': (0.95, 0.95, 'top', 'right'),
+            'top_left': (0.05, 0.95, 'top', 'left'),
+            'bottom_right': (0.95, 0.05, 'bottom', 'right'),
+            'bottom_left': (0.05, 0.05, 'bottom', 'left')
+        }
+
+        x, y, va, ha = pos_map.get(position, pos_map['top_right'])
+
+        # Add text box
+        ax.text(x, y, text, transform=ax.transAxes,
+               fontsize=8, verticalalignment=va, horizontalalignment=ha,
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+               zorder=10)
+
+    @staticmethod
+    def optimize_y_limits(ax: plt.Axes, y_data: np.ndarray, margin: float = 0.1):
+        """
+        Optimize Y-axis limits based on data range
+
+        Parameters:
+        -----------
+        ax : plt.Axes
+            Axis to optimize
+        y_data : np.ndarray
+            Y data values
+        margin : float
+            Margin as fraction of data range (0.1 = 10%)
+        """
+        # Remove NaN values
+        y_clean = y_data[~np.isnan(y_data)]
+
+        if len(y_clean) == 0:
+            return
+
+        y_min, y_max = y_clean.min(), y_clean.max()
+        y_range = y_max - y_min
+
+        # Add margin
+        if y_range > 0:
+            ax.set_ylim(y_min - margin * y_range, y_max + margin * y_range)
+        else:
+            # If all values are the same
+            ax.set_ylim(y_min - 1, y_max + 1)

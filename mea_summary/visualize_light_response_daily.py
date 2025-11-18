@@ -109,6 +109,16 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
                 zorder=1
             )
 
+        # Get x_max for phase visualization
+        x_max = grouped_baseline['DIFF_DAY'].max()
+
+        # Add differentiation phases (before plotting data)
+        self.add_differentiation_phases(ax, x_max, phase_type='day')
+
+        # Optimize Y-axis limits first (before adding phase labels)
+        all_y_data = np.concatenate([grouped_baseline['mean'].values, grouped_stim['mean'].values])
+        self.optimize_y_limits(ax, all_y_data, margin=0.15)
+
         # Plot baseline and stim mean lines with error bars
         baseline_kwargs = self._setup_errorbar_kwargs(color_baseline, 'Baseline', marker='o')
         stim_kwargs = self._setup_errorbar_kwargs(color_stim, 'Stim', marker='s')
@@ -118,6 +128,22 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
         ax.errorbar(grouped_stim['DIFF_DAY'], grouped_stim['mean'],
                    yerr=grouped_stim['se'], **stim_kwargs)
 
+        # Add trend lines with statistics for both baseline and stim
+        baseline_stats = self.add_trend_line(
+            ax, grouped_baseline['DIFF_DAY'].values, grouped_baseline['mean'].values,
+            color=color_baseline, label='Baseline Trend'
+        )
+        stim_stats = self.add_trend_line(
+            ax, grouped_stim['DIFF_DAY'].values, grouped_stim['mean'].values,
+            color=color_stim, label='Stim Trend'
+        )
+
+        # Add statistics annotation for baseline (top left) and stim (top right)
+        if baseline_stats:
+            self.add_statistics_annotation(ax, baseline_stats, position='top_left')
+        if stim_stats:
+            self.add_statistics_annotation(ax, stim_stats, position='top_right')
+
         # Formatting
         ax.set_xlabel('Differentiation Day (days)', fontsize=10, fontweight='bold')
         ax.set_ylabel('Value', fontsize=10, fontweight='bold')
@@ -125,8 +151,9 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
         title = f'{self.format_metric_name(metric_name)}\n{self.get_light_code_label(light_code)}'
         ax.set_title(title, fontsize=11, fontweight='bold', pad=10)
 
-        # Legend
-        ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9)
+        # Legend (move to lower position if stats are shown)
+        legend_loc = 'lower right' if (baseline_stats or stim_stats) else 'best'
+        ax.legend(loc=legend_loc, frameon=True, fancybox=False, shadow=False, framealpha=0.9, fontsize=8)
 
         # Grid
         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
@@ -195,16 +222,38 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
                 zorder=1
             )
 
+        # Get x_max for phase visualization
+        x_max = grouped['DIFF_DAY'].max()
+
+        # Add differentiation phases
+        self.add_differentiation_phases(ax, x_max, phase_type='day')
+
+        # Optimize Y-axis limits
+        self.optimize_y_limits(ax, grouped['mean'].values, margin=0.15)
+
+        # Add zero reference line
+        ax.axhline(y=0, color='gray', linestyle='--', linewidth=1.5, alpha=0.6, zorder=1, label='Zero Line')
+
         # Plot response mean line with error bars
+        response_color = self.palette.QUALITATIVE['green']
         response_kwargs = self._setup_errorbar_kwargs(
-            self.palette.QUALITATIVE['green'],
+            response_color,
             'Response (Stim - Baseline)',
             marker='o'
         )
         ax.errorbar(grouped['DIFF_DAY'], grouped['mean'], yerr=grouped['se'], **response_kwargs)
 
-        # Add zero reference line
-        ax.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5, zorder=0)
+        # Add trend line with statistics
+        response_stats = self.add_trend_line(
+            ax, grouped['DIFF_DAY'].values, grouped['mean'].values,
+            color='darkred', label='Response Trend'
+        )
+
+        # Add statistics annotation
+        if response_stats:
+            # Position based on whether slope is positive or negative
+            pos = 'top_right' if response_stats['slope'] > 0 else 'bottom_right'
+            self.add_statistics_annotation(ax, response_stats, position=pos)
 
         # Formatting
         ax.set_xlabel('Differentiation Day (days)', fontsize=10, fontweight='bold')
@@ -214,7 +263,8 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
         ax.set_title(title, fontsize=11, fontweight='bold', pad=10)
 
         # Legend
-        ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9)
+        legend_loc = 'upper left' if response_stats and response_stats['slope'] > 0 else 'best'
+        ax.legend(loc=legend_loc, frameon=True, fancybox=False, shadow=False, framealpha=0.9, fontsize=8)
 
         # Grid
         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
