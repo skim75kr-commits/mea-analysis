@@ -89,59 +89,34 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
         color_stim = self.palette.QUALITATIVE['orange']
 
         # Plot individual points first (if enabled)
-        if show_individual_points and len(metric_data) < 500:
+        # More efficient for large datasets: adjust alpha instead of hiding points
+        if show_individual_points:
+            point_alpha = 0.25 if len(metric_data) < 500 else 0.15
             ax.scatter(
-                metric_data['DIFF_DAY'] - 0.5,  # Slight offset for baseline
+                metric_data['DIFF_DAY'] - 0.5,
                 metric_data['Baseline'],
-                alpha=0.25,
-                s=25,
+                alpha=point_alpha,
+                s=20,
                 color=color_baseline,
                 zorder=1
             )
             ax.scatter(
-                metric_data['DIFF_DAY'] + 0.5,  # Slight offset for stim
+                metric_data['DIFF_DAY'] + 0.5,
                 metric_data['Stim'],
-                alpha=0.25,
-                s=25,
+                alpha=point_alpha,
+                s=20,
                 color=color_stim,
                 zorder=1
             )
 
-        # Plot baseline mean line with error bars
-        ax.errorbar(
-            grouped_baseline['DIFF_DAY'],
-            grouped_baseline['mean'],
-            yerr=grouped_baseline['se'],
-            marker='o',
-            linestyle='-',
-            linewidth=2,
-            markersize=7,
-            color=color_baseline,
-            ecolor=color_baseline,
-            capsize=4,
-            capthick=1.5,
-            label='Baseline',
-            alpha=0.9,
-            zorder=2
-        )
+        # Plot baseline and stim mean lines with error bars
+        baseline_kwargs = self._setup_errorbar_kwargs(color_baseline, 'Baseline', marker='o')
+        stim_kwargs = self._setup_errorbar_kwargs(color_stim, 'Stim', marker='s')
 
-        # Plot stim mean line with error bars
-        ax.errorbar(
-            grouped_stim['DIFF_DAY'],
-            grouped_stim['mean'],
-            yerr=grouped_stim['se'],
-            marker='s',
-            linestyle='-',
-            linewidth=2,
-            markersize=7,
-            color=color_stim,
-            ecolor=color_stim,
-            capsize=4,
-            capthick=1.5,
-            label='Stim',
-            alpha=0.9,
-            zorder=2
-        )
+        ax.errorbar(grouped_baseline['DIFF_DAY'], grouped_baseline['mean'],
+                   yerr=grouped_baseline['se'], **baseline_kwargs)
+        ax.errorbar(grouped_stim['DIFF_DAY'], grouped_stim['mean'],
+                   yerr=grouped_stim['se'], **stim_kwargs)
 
         # Formatting
         ax.set_xlabel('Differentiation Day (days)', fontsize=10, fontweight='bold')
@@ -207,34 +182,26 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
         grouped['se'] = grouped['std'] / np.sqrt(grouped['count'])
 
         # Plot individual points first (if enabled)
-        if show_individual_points and len(metric_data) < 500:
+        # More efficient for large datasets: adjust alpha instead of hiding points
+        if show_individual_points:
+            point_alpha = 0.25 if len(metric_data) < 500 else 0.12
             ax.scatter(
                 metric_data['DIFF_DAY'],
                 metric_data['Response'],
-                alpha=0.25,
-                s=25,
+                alpha=point_alpha,
+                s=20,
                 color=self.palette.SCATTER_POINTS,
-                label='Individual wells',
+                label='Individual wells' if point_alpha > 0.2 else None,
                 zorder=1
             )
 
         # Plot response mean line with error bars
-        ax.errorbar(
-            grouped['DIFF_DAY'],
-            grouped['mean'],
-            yerr=grouped['se'],
-            marker='o',
-            linestyle='-',
-            linewidth=2,
-            markersize=7,
-            color=self.palette.QUALITATIVE['green'],
-            ecolor=self.palette.QUALITATIVE['green'],
-            capsize=4,
-            capthick=1.5,
-            label='Response (Stim - Baseline)',
-            alpha=0.9,
-            zorder=2
+        response_kwargs = self._setup_errorbar_kwargs(
+            self.palette.QUALITATIVE['green'],
+            'Response (Stim - Baseline)',
+            marker='o'
         )
+        ax.errorbar(grouped['DIFF_DAY'], grouped['mean'], yerr=grouped['se'], **response_kwargs)
 
         # Add zero reference line
         ax.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5, zorder=0)
@@ -247,8 +214,7 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
         ax.set_title(title, fontsize=11, fontweight='bold', pad=10)
 
         # Legend
-        if show_individual_points and len(metric_data) < 500:
-            ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9)
+        ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9)
 
         # Grid
         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)

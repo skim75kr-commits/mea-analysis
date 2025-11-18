@@ -9,11 +9,16 @@ import seaborn as sns
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
 import warnings
 warnings.filterwarnings('ignore')
 
 # Import from existing base module for consistency
-from visualize_metrics_base import ScientificPalette, setup_scientific_style
+try:
+    from visualize_metrics_base import ScientificPalette, setup_scientific_style
+except ImportError:
+    # Fallback for when visualize_metrics_base is not available
+    from code_SpontaneousActivity.visualize_metrics_base import ScientificPalette, setup_scientific_style
 
 
 class BaseLightResponseVisualizer:
@@ -243,3 +248,64 @@ class BaseLightResponseVisualizer:
 
         if close:
             plt.close(fig)
+
+    @staticmethod
+    def _setup_errorbar_kwargs(color: str, label: str, marker: str = 'o',
+                               is_line: bool = True) -> Dict:
+        """
+        Setup consistent errorbar styling configuration
+
+        Parameters:
+        -----------
+        color : str
+            Color for the line and error bars
+        label : str
+            Label for the line
+        marker : str
+            Marker style ('o' for circle, 's' for square)
+        is_line : bool
+            Whether to draw connecting lines
+
+        Returns:
+        --------
+        Dict
+            Configuration dictionary for errorbar plotting
+        """
+        return {
+            'marker': marker,
+            'linestyle': '-' if is_line else 'none',
+            'linewidth': 2,
+            'markersize': 7,
+            'color': color,
+            'ecolor': color,
+            'capsize': 4,
+            'capthick': 1.5,
+            'label': label,
+            'alpha': 0.9,
+            'zorder': 2
+        }
+
+    @staticmethod
+    def _setup_scatter_kwargs(color: str, label: str = None) -> Dict:
+        """
+        Setup consistent scatter point styling
+
+        Parameters:
+        -----------
+        color : str
+            Color for scatter points
+        label : str
+            Label for the points
+
+        Returns:
+        --------
+        Dict
+            Configuration dictionary for scatter plotting
+        """
+        return {
+            'alpha': 0.25,
+            's': 25,
+            'color': color,
+            'label': label,
+            'zorder': 1
+        }
