@@ -378,9 +378,13 @@ class BaseLightResponseVisualizer:
         Returns:
         --------
         Dict
-            Dictionary containing slope, r_squared, and p_value
+            Dictionary containing slope, r_squared, and p_value (None if scipy not available)
         """
-        from scipy import stats
+        try:
+            from scipy import stats
+            scipy_available = True
+        except ImportError:
+            scipy_available = False
 
         # Remove NaN values
         mask = ~(np.isnan(x_data) | np.isnan(y_data))
@@ -402,13 +406,31 @@ class BaseLightResponseVisualizer:
         ax.plot(x_smooth, y_smooth, '--', color=color, linewidth=2,
                alpha=0.7, label=label, zorder=3)
 
-        # Calculate statistics for linear fit
-        if degree == 1:
+        # Calculate statistics for linear fit (only if scipy is available)
+        if degree == 1 and scipy_available:
             slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
             return {
                 'slope': slope,
                 'r_squared': r_value**2,
                 'p_value': p_value
+            }
+        elif degree == 1:
+            # Basic statistics without scipy
+            # Calculate slope manually for linear regression
+            x_mean = np.mean(x_clean)
+            y_mean = np.mean(y_clean)
+            slope = np.sum((x_clean - x_mean) * (y_clean - y_mean)) / np.sum((x_clean - x_mean)**2)
+
+            # Calculate R-squared
+            y_pred = coeffs[0] * x_clean + coeffs[1]
+            ss_res = np.sum((y_clean - y_pred)**2)
+            ss_tot = np.sum((y_clean - y_mean)**2)
+            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+            return {
+                'slope': slope,
+                'r_squared': r_squared,
+                'p_value': None  # p-value requires scipy
             }
         return None
 
@@ -432,19 +454,23 @@ class BaseLightResponseVisualizer:
         # Format statistics text
         slope = stats_dict.get('slope', 0)
         r_sq = stats_dict.get('r_squared', 0)
-        p_val = stats_dict.get('p_value', 1)
+        p_val = stats_dict.get('p_value', None)
 
-        # Determine significance
-        if p_val < 0.001:
-            sig = '***'
-        elif p_val < 0.01:
-            sig = '**'
-        elif p_val < 0.05:
-            sig = '*'
-        else:
-            sig = 'ns'
+        # Build text with available statistics
+        text = f'Slope: {slope:.3e}\n$R^2$: {r_sq:.3f}'
 
-        text = f'Slope: {slope:.3e}\n$R^2$: {r_sq:.3f}\np: {p_val:.3e} {sig}'
+        # Add p-value if available (requires scipy)
+        if p_val is not None:
+            # Determine significance
+            if p_val < 0.001:
+                sig = '***'
+            elif p_val < 0.01:
+                sig = '**'
+            elif p_val < 0.05:
+                sig = '*'
+            else:
+                sig = 'ns'
+            text += f'\np: {p_val:.3e} {sig}'
 
         # Position mapping
         pos_map = {
