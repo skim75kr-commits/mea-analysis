@@ -13,12 +13,108 @@ from dataclasses import dataclass
 import warnings
 warnings.filterwarnings('ignore')
 
-# Import from existing base module for consistency
-try:
-    from visualize_metrics_base import ScientificPalette, setup_scientific_style
-except ImportError:
-    # Fallback for when visualize_metrics_base is not available
-    from code_SpontaneousActivity.visualize_metrics_base import ScientificPalette, setup_scientific_style
+
+class ScientificPalette:
+    """
+    Professional color palette for scientific publications
+    Colorblind-friendly and journal-ready (Nature, Cell, Science style)
+    """
+
+    # Paul Tol's colorblind-friendly palette
+    QUALITATIVE = {
+        'blue': '#0173B2',
+        'orange': '#DE8F05',
+        'green': '#029E73',
+        'red': '#CC78BC',
+        'cyan': '#56B4E9',
+        'magenta': '#CA9161',
+        'purple': '#949494',
+        'yellow': '#ECE133'
+    }
+
+    # Sequential colors for heatmaps (colorblind-friendly)
+    SEQUENTIAL = 'viridis'  # or 'cividis', 'plasma'
+
+    # Diverging colors
+    DIVERGING = 'RdYlBu_r'
+
+    # Specific use colors
+    MEAN_LINE = '#0173B2'  # Blue
+    ERROR_BAR = '#0173B2'
+    SCATTER_POINTS = '#949494'  # Gray
+    GRID = '#CCCCCC'
+
+    @classmethod
+    def get_color_cycle(cls, n_colors: int) -> List[str]:
+        """Get a list of n colors from the qualitative palette"""
+        colors = list(cls.QUALITATIVE.values())
+        if n_colors <= len(colors):
+            return colors[:n_colors]
+        # Repeat colors if needed
+        return (colors * ((n_colors // len(colors)) + 1))[:n_colors]
+
+
+def setup_scientific_style():
+    """
+    Configure matplotlib for professional scientific publications
+    Following Nature/Cell/Science submission guidelines
+    """
+    # Font settings
+    plt.rcParams['font.family'] = 'sans-serif'
+    plt.rcParams['font.sans-serif'] = ['Arial', 'Helvetica', 'DejaVu Sans']
+    plt.rcParams['font.size'] = 9
+
+    # Figure settings
+    plt.rcParams['figure.figsize'] = (7, 5)  # Nature single column: 89mm, double: 183mm
+    plt.rcParams['figure.dpi'] = 300
+    plt.rcParams['savefig.dpi'] = 300
+    plt.rcParams['savefig.bbox'] = 'tight'
+    plt.rcParams['savefig.transparent'] = False
+
+    # Axes settings
+    plt.rcParams['axes.linewidth'] = 0.8
+    plt.rcParams['axes.labelsize'] = 10
+    plt.rcParams['axes.titlesize'] = 11
+    plt.rcParams['axes.labelweight'] = 'bold'
+    plt.rcParams['axes.titleweight'] = 'bold'
+    plt.rcParams['axes.spines.top'] = False
+    plt.rcParams['axes.spines.right'] = False
+    plt.rcParams['axes.grid'] = True
+    plt.rcParams['axes.axisbelow'] = True
+
+    # Grid settings
+    plt.rcParams['grid.alpha'] = 0.3
+    plt.rcParams['grid.linewidth'] = 0.5
+    plt.rcParams['grid.color'] = ScientificPalette.GRID
+
+    # Legend settings
+    plt.rcParams['legend.fontsize'] = 8
+    plt.rcParams['legend.frameon'] = False
+    plt.rcParams['legend.loc'] = 'best'
+
+    # Tick settings
+    plt.rcParams['xtick.labelsize'] = 9
+    plt.rcParams['ytick.labelsize'] = 9
+    plt.rcParams['xtick.major.width'] = 0.8
+    plt.rcParams['ytick.major.width'] = 0.8
+    plt.rcParams['xtick.major.size'] = 3.5
+    plt.rcParams['ytick.major.size'] = 3.5
+
+    # Line settings
+    plt.rcParams['lines.linewidth'] = 1.5
+    plt.rcParams['lines.markersize'] = 6
+
+    # Error bar settings
+    plt.rcParams['errorbar.capsize'] = 3
+
+    # Set seaborn style
+    sns.set_style("ticks", {
+        'axes.grid': True,
+        'axes.edgecolor': '0.2',
+        'grid.color': ScientificPalette.GRID,
+        'grid.linestyle': '-'
+    })
+    sns.set_palette(list(ScientificPalette.QUALITATIVE.values()))
 
 
 class BaseLightResponseVisualizer:
