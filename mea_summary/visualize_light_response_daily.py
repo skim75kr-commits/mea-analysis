@@ -109,16 +109,6 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
                 zorder=1
             )
 
-        # Get x_max for phase visualization
-        x_max = grouped_baseline['DIFF_DAY'].max()
-
-        # Add differentiation phases (before plotting data)
-        self.add_differentiation_phases(ax, x_max, phase_type='day')
-
-        # Optimize Y-axis limits first (before adding phase labels)
-        all_y_data = np.concatenate([grouped_baseline['mean'].values, grouped_stim['mean'].values])
-        self.optimize_y_limits(ax, all_y_data, margin=0.15)
-
         # Plot baseline and stim mean lines with error bars
         baseline_kwargs = self._setup_errorbar_kwargs(color_baseline, 'Baseline', marker='o')
         stim_kwargs = self._setup_errorbar_kwargs(color_stim, 'Stim', marker='s')
@@ -137,6 +127,14 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
             ax, grouped_stim['DIFF_DAY'].values, grouped_stim['mean'].values,
             color=color_stim, label='Stim Trend'
         )
+
+        # Optimize Y-axis limits after plotting
+        all_y_data = np.concatenate([grouped_baseline['mean'].values, grouped_stim['mean'].values])
+        self.optimize_y_limits(ax, all_y_data, margin=0.15)
+
+        # Add differentiation phases (after Y-axis is set)
+        x_max = grouped_baseline['DIFF_DAY'].max()
+        self.add_differentiation_phases(ax, x_max, phase_type='day')
 
         # Add statistics annotation for baseline (top left) and stim (top right)
         if baseline_stats:
@@ -222,15 +220,6 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
                 zorder=1
             )
 
-        # Get x_max for phase visualization
-        x_max = grouped['DIFF_DAY'].max()
-
-        # Add differentiation phases
-        self.add_differentiation_phases(ax, x_max, phase_type='day')
-
-        # Optimize Y-axis limits
-        self.optimize_y_limits(ax, grouped['mean'].values, margin=0.15)
-
         # Add zero reference line
         ax.axhline(y=0, color='gray', linestyle='--', linewidth=1.5, alpha=0.6, zorder=1, label='Zero Line')
 
@@ -248,6 +237,13 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
             ax, grouped['DIFF_DAY'].values, grouped['mean'].values,
             color='darkred', label='Response Trend'
         )
+
+        # Optimize Y-axis limits after plotting
+        self.optimize_y_limits(ax, grouped['mean'].values, margin=0.15)
+
+        # Add differentiation phases (after Y-axis is set)
+        x_max = grouped['DIFF_DAY'].max()
+        self.add_differentiation_phases(ax, x_max, phase_type='day')
 
         # Add statistics annotation
         if response_stats:

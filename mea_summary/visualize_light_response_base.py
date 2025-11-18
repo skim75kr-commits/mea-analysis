@@ -328,8 +328,8 @@ class BaseLightResponseVisualizer:
             # Define phases based on differentiation days
             if x_max <= 20:
                 phases = [
-                    (0, 7, 'Early\nDifferentiation', '#E8F4F8'),
-                    (7, x_max, 'Mid-Late\nDifferentiation', '#FFF4E6')
+                    (0, 7, 'Early', '#E8F4F8'),
+                    (7, x_max, 'Mid-Late', '#FFF4E6')
                 ]
             else:
                 phases = [
@@ -341,18 +341,28 @@ class BaseLightResponseVisualizer:
             # Simpler phases for weekly view
             mid_point = x_max / 2
             phases = [
-                (0, mid_point, 'Early Phase', '#E8F4F8'),
-                (mid_point, x_max, 'Late Phase', '#FFF4E6')
+                (0, mid_point, 'Early', '#E8F4F8'),
+                (mid_point, x_max, 'Late', '#FFF4E6')
             ]
 
         # Add shaded regions
         for start, end, label, color in phases:
             ax.axvspan(start, end, alpha=0.15, color=color, zorder=0)
-            # Add phase label at the top
+
+            # Add phase label at fixed relative position (top of plot area)
+            # Use transform to ensure consistent positioning across all subplots
             mid_x = (start + end) / 2
-            y_pos = ax.get_ylim()[1]
-            ax.text(mid_x, y_pos, label, ha='center', va='bottom',
-                   fontsize=8, style='italic', color='gray', alpha=0.7)
+            # Convert x position to axis fraction for consistent placement
+            x_range = ax.get_xlim()
+            x_frac = (mid_x - x_range[0]) / (x_range[1] - x_range[0]) if (x_range[1] - x_range[0]) > 0 else 0.5
+
+            # Place label at 98% of y-axis height (consistent across all subplots)
+            ax.text(x_frac, 0.98, label, transform=ax.transAxes,
+                   ha='center', va='top',
+                   fontsize=7, style='italic', color='gray',
+                   alpha=0.8, weight='bold',
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                            edgecolor='none', alpha=0.7))
 
     @staticmethod
     def add_trend_line(ax: plt.Axes, x_data: np.ndarray, y_data: np.ndarray,
