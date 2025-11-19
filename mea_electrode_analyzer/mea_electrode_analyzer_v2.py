@@ -1436,6 +1436,401 @@ class ElectrodeDashboard:
 
 
 # =============================================================================
+# 7C. Light Response Analyzer (신규 추가)
+# =============================================================================
+
+class LightResponseAnalyzer:
+    """Light_code별 전극 레벨 response 분석"""
+
+    def __init__(self, df_all, df_selected, output_dir):
+        self.df_all = df_all
+        self.df_selected = df_selected
+        self.output_dir = Path(output_dir) / 'light_response'
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        self.response_data = None
+
+    @timer
+    def calculate_responses(self):
+        """BASE 대비 STIM의 response 계산 (difference)"""
+        print("\n[LIGHT RESPONSE] Calculating responses...")
+
+        if self.df_selected.empty:
+            print("  ⚠ No selected data")
+            return self
+
+        if 'LIGHT_CODE' not in self.df_selected.columns:
+            print("  ⚠ No LIGHT_CODE column")
+            return self
+
+        # 주요 metric
+        key_metrics = ['number_of_spikes', 'mean_firing_rate_hz', 'burst_frequency_hz']
+        available_metrics = [m for m in key_metrics if m in self.df_selected['Metric'].unique()]
+
+        if not available_metrics:
+            print("  ⚠ No key metrics found")
+            return self
+
+        responses = []
+
+        for metric in available_metrics:
+            metric_data = self.df_selected[self.df_selected['Metric'] == metric]
+
+            # BASE와 STIM 분리
+            base_data = metric_data[metric_data['BASE_STIM'] == 'BASE']
+            stim_data = metric_data[metric_data['BASE_STIM'] == 'STIM']
+
+            # 전극별로 매칭
+            for _, stim_row in stim_data.iterrows():
+                electrode_id = stim_row['Electrode_ID']
+                well = stim_row['Well']
+                light_code = stim_row['LIGHT_CODE']
+
+                # 같은 전극의 BASE 찾기
+                base_row = base_data[
+                    (base_data['Electrode_ID'] == electrode_id) &
+                    (base_data['LIGHT_CODE'] == light_code)
+                ]
+
+                if not base_row.empty:
+                    base_val = base_row['Value'].iloc[0]
+                    stim_val = stim_row['Value']
+
+                    # Response = STIM - BASE
+                    response = stim_val - base_val
+
+                    # Fold change
+                    fold_change = (stim_val + 1e-6) / (base_val + 1e-6)
+
+                    responses.append({
+                        'Electrode_ID': electrode_id,
+                        'Well': well,
+                        'LIGHT_CODE': light_code,
+                        'Metric': metric,
+                        'BASE_Value': base_val,
+                        'STIM_Value': stim_val,
+                        'Response': response,
+                        'Fold_Change': fold_change,
+                        'Electrode_Index': stim_row.get('Electrode_Index', ''),
+                    })
+
+        self.response_data = pd.DataFrame(responses)
+
+        if not self.response_data.empty:
+            # CSV 저장
+            csv_path = self.output_dir / 'light_response_data.csv'
+            self.response_data.to_csv(csv_path, index=False)
+            print(f"  ✓ Response data saved: {csv_path.name}")
+            print(f"  ✓ Calculated {len(self.response_data)} responses")
+        else:
+            print("  ⚠ No response data calculated")
+
+        return self
+
+    @timer
+    def create_visualizations(self):
+        """Light response 시각화 생성"""
+        if self.response_data is None or self.response_data.empty:
+            print("  ⚠ No response data to visualize")
+            return self
+
+        print("\n[LIGHT RESPONSE] Creating visualizations...")
+
+        viz_funcs = [
+            self.plot_response_by_electrode,
+            self.plot_response_by_light_code,
+            self.plot_response_heatmap_by_light,
+            self.plot_response_distribution,
+            self.plot_fold_change_analysis,
+        ]
+
+        for func in viz_funcs:
+            try:
+                func()
+            except Exception as e:
+                print(f"  ⚠ Warning in {func.__name__}: {e}")
+
+        print("  ✓ Light response visualizations complete")
+        return self
+
+    def plot_response_by_electrode(self):
+        """각 light_code별로 electrode별 response histogram"""
+        if self.response_data is None or self.response_data.empty:
+            return
+
+        light_codes = sorted(self.response_data['LIGHT_CODE'].unique())
+        metrics = sorted(self.response_data['Metric'].unique())
+
+        for metric in metrics:
+            metric_data = self.response_data[self.response_data['Metric'] == metric]
+
+            for light_code in light_codes:
+                light_data = metric_data[metric_data['LIGHT_CODE'] == light_code]
+
+                if light_data.empty:
+                    continue
+
+                # Electrode ID로 정렬
+                light_data = light_data.sort_values('Electrode_ID')
+
+                fig, ax = plt.subplots(figsize=(max(14, len(light_data) * 0.3), 6))
+
+                # Bar plot
+                x_pos = np.arange(len(light_data))
+                colors = ['green' if r > 0 else 'red' for r in light_data['Response']]
+
+                bars = ax.bar(x_pos, light_data['Response'], color=colors,
+                             alpha=0.7, edgecolor='black', linewidth=1)
+
+                # X축: Electrode ID
+                ax.set_xticks(x_pos)
+                ax.set_xticklabels(light_data['Electrode_ID'], rotation=90, ha='right', fontsize=8)
+                ax.set_xlabel('Electrode ID', fontweight='bold')
+                ax.set_ylabel(f'Response ({metric.replace("_", " ").title()})', fontweight='bold')
+                ax.set_title(f'Light Response by Electrode\n{metric.replace("_", " ").title()} - Light Code: {light_code}',
+                            fontweight='bold', fontsize=12)
+
+                # Zero line
+                ax.axhline(0, color='black', linestyle='-', linewidth=1, alpha=0.3)
+
+                # Grid
+                ax.grid(axis='y', alpha=0.3)
+
+                plt.tight_layout()
+                filename = f'response_by_electrode_{metric}_{light_code}.png'
+                plt.savefig(self.output_dir / filename, dpi=300, bbox_inches='tight')
+                plt.close(fig)
+
+    def plot_response_by_light_code(self):
+        """Light_code별 평균 response 비교"""
+        if self.response_data is None or self.response_data.empty:
+            return
+
+        metrics = sorted(self.response_data['Metric'].unique())
+        n_metrics = len(metrics)
+
+        fig, axes = plt.subplots(1, n_metrics, figsize=(7*n_metrics, 6))
+        if n_metrics == 1:
+            axes = [axes]
+
+        for idx, metric in enumerate(metrics):
+            ax = axes[idx]
+
+            metric_data = self.response_data[self.response_data['Metric'] == metric]
+
+            # Light_code별 평균 response
+            light_summary = metric_data.groupby('LIGHT_CODE')['Response'].agg(['mean', 'std']).reset_index()
+            light_summary = light_summary.sort_values('LIGHT_CODE')
+
+            x_pos = np.arange(len(light_summary))
+
+            # Bar plot with error bars
+            colors = ['green' if m > 0 else 'red' for m in light_summary['mean']]
+            bars = ax.bar(x_pos, light_summary['mean'], yerr=light_summary['std'],
+                         capsize=5, color=colors, alpha=0.7, edgecolor='black', linewidth=1.5)
+
+            ax.set_xticks(x_pos)
+            ax.set_xticklabels(light_summary['LIGHT_CODE'], rotation=45, ha='right')
+            ax.set_xlabel('Light Code', fontweight='bold')
+            ax.set_ylabel('Mean Response', fontweight='bold')
+            ax.set_title(f'{metric.replace("_", " ").title()}\nMean Response by Light Code',
+                        fontweight='bold')
+
+            # Zero line
+            ax.axhline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.5)
+            ax.grid(axis='y', alpha=0.3)
+
+            # Add value labels
+            for i, (mean_val, std_val) in enumerate(zip(light_summary['mean'], light_summary['std'])):
+                y_pos = mean_val + std_val if mean_val > 0 else mean_val - std_val
+                ax.text(i, y_pos, f'{mean_val:.1f}', ha='center', va='bottom' if mean_val > 0 else 'top',
+                       fontsize=9, fontweight='bold')
+
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'response_by_light_code_summary.png', dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_response_heatmap_by_light(self):
+        """각 light_code별 Well × Electrode 히트맵"""
+        if self.response_data is None or self.response_data.empty:
+            return
+
+        light_codes = sorted(self.response_data['LIGHT_CODE'].unique())
+        metrics = sorted(self.response_data['Metric'].unique())
+
+        for metric in metrics:
+            metric_data = self.response_data[self.response_data['Metric'] == metric]
+
+            n_lights = len(light_codes)
+            n_cols = min(3, n_lights)
+            n_rows = (n_lights + n_cols - 1) // n_cols
+
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=(7*n_cols, 5*n_rows))
+            if n_lights == 1:
+                axes = [axes]
+            else:
+                axes = axes.flatten() if n_lights > 1 else [axes]
+
+            for idx, light_code in enumerate(light_codes):
+                ax = axes[idx]
+
+                light_data = metric_data[metric_data['LIGHT_CODE'] == light_code]
+
+                if light_data.empty:
+                    ax.text(0.5, 0.5, f'No data for {light_code}',
+                           ha='center', va='center', transform=ax.transAxes)
+                    continue
+
+                # Pivot: Electrode_ID × Well
+                pivot = light_data.pivot_table(
+                    index='Electrode_ID',
+                    columns='Well',
+                    values='Response',
+                    aggfunc='mean'
+                )
+
+                if pivot.empty:
+                    continue
+
+                # Heatmap
+                sns.heatmap(pivot, annot=True, fmt='.1f', cmap='RdYlGn', center=0,
+                           cbar_kws={'label': 'Response'},
+                           linewidths=0.5, linecolor='gray', ax=ax,
+                           annot_kws={'size': 8})
+
+                ax.set_title(f'Light Code: {light_code}', fontweight='bold', fontsize=11)
+                ax.set_xlabel('Well', fontweight='bold')
+                ax.set_ylabel('Electrode ID', fontweight='bold')
+                plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+                plt.setp(ax.get_yticklabels(), rotation=0)
+
+            # Hide unused subplots
+            for idx in range(n_lights, len(axes)):
+                axes[idx].set_visible(False)
+
+            plt.suptitle(f'{metric.replace("_", " ").title()} - Response Heatmap by Light Code',
+                        fontweight='bold', fontsize=14)
+            plt.tight_layout()
+            plt.savefig(self.output_dir / f'response_heatmap_{metric}_by_light.png',
+                       dpi=300, bbox_inches='tight')
+            plt.close(fig)
+
+    def plot_response_distribution(self):
+        """Response 분포 (histogram)"""
+        if self.response_data is None or self.response_data.empty:
+            return
+
+        metrics = sorted(self.response_data['Metric'].unique())
+        light_codes = sorted(self.response_data['LIGHT_CODE'].unique())
+
+        for metric in metrics:
+            metric_data = self.response_data[self.response_data['Metric'] == metric]
+
+            n_lights = len(light_codes)
+            n_cols = min(3, n_lights)
+            n_rows = (n_lights + n_cols - 1) // n_cols
+
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=(6*n_cols, 4*n_rows))
+            if n_lights == 1:
+                axes = [axes]
+            else:
+                axes = axes.flatten() if n_lights > 1 else [axes]
+
+            for idx, light_code in enumerate(light_codes):
+                ax = axes[idx]
+
+                light_data = metric_data[metric_data['LIGHT_CODE'] == light_code]
+
+                if light_data.empty or light_data['Response'].isna().all():
+                    ax.text(0.5, 0.5, f'No data for {light_code}',
+                           ha='center', va='center', transform=ax.transAxes)
+                    continue
+
+                responses = light_data['Response'].dropna()
+
+                # Histogram
+                ax.hist(responses, bins=20, edgecolor='black', alpha=0.7, color='steelblue')
+
+                # Mean line
+                mean_resp = responses.mean()
+                ax.axvline(mean_resp, color='red', linestyle='--', linewidth=2,
+                          label=f'Mean: {mean_resp:.2f}')
+
+                # Zero line
+                ax.axvline(0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+
+                ax.set_xlabel('Response', fontweight='bold')
+                ax.set_ylabel('Frequency', fontweight='bold')
+                ax.set_title(f'Light Code: {light_code}', fontweight='bold')
+                ax.legend()
+                ax.grid(alpha=0.3)
+
+            # Hide unused subplots
+            for idx in range(n_lights, len(axes)):
+                axes[idx].set_visible(False)
+
+            plt.suptitle(f'{metric.replace("_", " ").title()} - Response Distribution',
+                        fontweight='bold', fontsize=14)
+            plt.tight_layout()
+            plt.savefig(self.output_dir / f'response_distribution_{metric}.png',
+                       dpi=300, bbox_inches='tight')
+            plt.close(fig)
+
+    def plot_fold_change_analysis(self):
+        """Fold change 분석"""
+        if self.response_data is None or self.response_data.empty:
+            return
+
+        metrics = sorted(self.response_data['Metric'].unique())
+
+        for metric in metrics:
+            metric_data = self.response_data[self.response_data['Metric'] == metric]
+
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+            # 1. Fold change by light_code
+            ax1 = axes[0]
+            light_summary = metric_data.groupby('LIGHT_CODE')['Fold_Change'].agg(['mean', 'std']).reset_index()
+            light_summary = light_summary.sort_values('LIGHT_CODE')
+
+            x_pos = np.arange(len(light_summary))
+            ax1.bar(x_pos, light_summary['mean'], yerr=light_summary['std'],
+                   capsize=5, alpha=0.7, edgecolor='black', color='orange')
+
+            ax1.axhline(1, color='black', linestyle='--', linewidth=1.5, label='No change (FC=1)')
+            ax1.set_xticks(x_pos)
+            ax1.set_xticklabels(light_summary['LIGHT_CODE'], rotation=45, ha='right')
+            ax1.set_xlabel('Light Code', fontweight='bold')
+            ax1.set_ylabel('Mean Fold Change', fontweight='bold')
+            ax1.set_title('Mean Fold Change by Light Code', fontweight='bold')
+            ax1.legend()
+            ax1.grid(axis='y', alpha=0.3)
+
+            # 2. Fold change distribution (all light codes)
+            ax2 = axes[1]
+
+            # Clip extreme values for better visualization
+            fc_clipped = np.clip(metric_data['Fold_Change'], 0, 10)
+
+            ax2.hist(fc_clipped, bins=30, edgecolor='black', alpha=0.7, color='coral')
+            ax2.axvline(1, color='black', linestyle='--', linewidth=2, label='No change (FC=1)')
+            ax2.axvline(fc_clipped.mean(), color='red', linestyle='--', linewidth=2,
+                       label=f'Mean: {fc_clipped.mean():.2f}')
+            ax2.set_xlabel('Fold Change (clipped at 10)', fontweight='bold')
+            ax2.set_ylabel('Frequency', fontweight='bold')
+            ax2.set_title('Fold Change Distribution (All Light Codes)', fontweight='bold')
+            ax2.legend()
+            ax2.grid(alpha=0.3)
+
+            plt.suptitle(f'{metric.replace("_", " ").title()} - Fold Change Analysis',
+                        fontweight='bold', fontsize=14)
+            plt.tight_layout()
+            plt.savefig(self.output_dir / f'fold_change_analysis_{metric}.png',
+                       dpi=300, bbox_inches='tight')
+            plt.close(fig)
+
+
+# =============================================================================
 # 8. 파이프라인 클래스 V2 (최적화 & 시각화 강화)
 # =============================================================================
 
@@ -1574,6 +1969,17 @@ class ElectrodeAnalysisPipelineV2:
         )
         dashboard.create_dashboard()
         self.performance.record('Stage 5B: Dashboard', time.time() - stage_start)
+
+        # 5C) Light Response 분석 (v2.0 신규)
+        stage_start = time.time()
+        print('\n[STAGE 5C] Analyzing light responses...')
+        light_response = LightResponseAnalyzer(
+            self.df_all,
+            self.df_selected,
+            self.output_dir
+        )
+        light_response.calculate_responses().create_visualizations()
+        self.performance.record('Stage 5C: Light Response', time.time() - stage_start)
 
         # 6) 최종 리포트
         self._generate_final_report()
