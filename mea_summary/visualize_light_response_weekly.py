@@ -194,6 +194,14 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
         title = f'{self.format_metric_name(metric_name)}\n{self.get_light_code_label(light_code)}'
         ax.set_title(title, fontsize=11, fontweight='bold', pad=10)
 
+        # Add sample size and error bar info
+        n_samples = int(metric_data['Baseline_Count'].mean())
+        ax.text(0.02, 0.02, f'n={n_samples} (avg)\nError bars: SEM',
+               transform=ax.transAxes, fontsize=7,
+               verticalalignment='bottom', horizontalalignment='left',
+               bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
+                        edgecolor='gray', alpha=0.8, linewidth=0.5))
+
         # Legend
         legend_loc = 'lower right' if (baseline_stats or stim_stats) else 'best'
         ax.legend(loc=legend_loc, frameon=True, fancybox=False, shadow=False, framealpha=0.9, fontsize=8)
@@ -294,6 +302,14 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
 
         title = f'{self.format_metric_name(metric_name)} Response\n{self.get_light_code_label(light_code)}'
         ax.set_title(title, fontsize=11, fontweight='bold', pad=10)
+
+        # Add sample size and error bar info
+        n_samples = int(metric_data['Response_Count'].mean())
+        ax.text(0.02, 0.02, f'n={n_samples} (avg)\nError bars: SEM',
+               transform=ax.transAxes, fontsize=7,
+               verticalalignment='bottom', horizontalalignment='left',
+               bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
+                        edgecolor='gray', alpha=0.8, linewidth=0.5))
 
         # Legend
         legend_loc = 'upper left' if response_stats and response_stats['slope'] > 0 else 'best'
