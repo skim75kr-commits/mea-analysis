@@ -1,0 +1,59 @@
+{
+  "metadata": {
+    "PLATE_ID": "P307",
+    "INTENSITY(%)": 5,
+    "EXP_TYPE": "CONTROL",
+    "DRUG": "NONE",
+    "CONCENTRATION (mM)": 0,
+    "Plating DAY": 17
+  },
+  "time_settings": {
+    "base": {
+      "TIME_DURATION(sec)": 60,
+      "TIME_START": 0
+    },
+    "stim": {
+      "TIME_DURATION(sec)": 60,
+      "TIME_START": 60
+    },
+    "washout": {
+      "TIME_DURATION(sec)": 60,
+      "TIME_START": 120
+    }
+  },
+  "folder_mapping": {
+    "0-60": "BASE",
+    "60-120": "STIM",
+    "120-180": "WASHOUT"
+  },
+  "filtering": {
+    "min_spike_count": 10,
+    "min_data_percentage": 0.5
+  },
+  "well_info": {
+    "A1": {"Differentiation_Day": 183, "Notes": ""},
+    "A2": {"Differentiation_Day": 118, "Notes": ""},
+    "A3": {"Differentiation_Day": 212, "Notes": ""},
+    "A4": {"Differentiation_Day": null, "Notes": ""},
+    "A5": {"Differentiation_Day": null, "Notes": ""},
+    "A6": {"Differentiation_Day": null, "Notes": ""},
+    "B1": {"Differentiation_Day": 183, "Notes": ""},
+    "B2": {"Differentiation_Day": 118, "Notes": ""},
+    "B3": {"Differentiation_Day": 212, "Notes": ""},
+    "B4": {"Differentiation_Day": null, "Notes": ""},
+    "B5": {"Differentiation_Day": null, "Notes": ""},
+    "B6": {"Differentiation_Day": null, "Notes": ""},
+    "C1": {"Differentiation_Day": null, "Notes": ""},
+    "C2": {"Differentiation_Day": null, "Notes": ""},
+    "C3": {"Differentiation_Day": null, "Notes": ""},
+    "C4": {"Differentiation_Day": null, "Notes": ""},
+    "C5": {"Differentiation_Day": null, "Notes": ""},
+    "C6": {"Differentiation_Day": null, "Notes": ""},
+    "D1": {"Differentiation_Day": null, "Notes": ""},
+    "D2": {"Differentiation_Day": null, "Notes": ""},
+    "D3": {"Differentiation_Day": null, "Notes": ""},
+    "D4": {"Differentiation_Day": null, "Notes": ""},
+    "D5": {"Differentiation_Day": null, "Notes": ""},
+    "D6": {"Differentiation_Day": null, "Notes": ""}
+  }
+}
