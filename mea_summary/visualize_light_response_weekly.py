@@ -171,13 +171,15 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
             color=color_stim, label='Stim Trend'
         )
 
-        # Optimize Y-axis limits after plotting
+        # Optimize X and Y axis limits after plotting
         all_y_data = np.concatenate([metric_data['Baseline_Mean'].values, metric_data['Stim_Mean'].values])
         self.optimize_y_limits(ax, all_y_data)
+        self.optimize_x_limits(ax, metric_data['Week'].values)
 
-        # Add differentiation phases (after Y-axis is set)
+        # Add differentiation phases (after axis limits are set)
+        x_min = metric_data['Week'].min()
         x_max = metric_data['Week'].max()
-        self.add_differentiation_phases(ax, x_max, phase_type='week')
+        self.add_differentiation_phases(ax, x_min, x_max, phase_type='week')
 
         # Add statistics annotations
         if baseline_stats:
@@ -271,12 +273,14 @@ class WeeklyLightResponseVisualizer(BaseLightResponseVisualizer):
             color='darkred', label='Response Trend'
         )
 
-        # Optimize Y-axis limits after plotting
+        # Optimize X and Y axis limits after plotting
         self.optimize_y_limits(ax, metric_data['Response_Mean'].values)
+        self.optimize_x_limits(ax, metric_data['Week'].values)
 
-        # Add differentiation phases (after Y-axis is set)
+        # Add differentiation phases (after axis limits are set)
+        x_min = metric_data['Week'].min()
         x_max = metric_data['Week'].max()
-        self.add_differentiation_phases(ax, x_max, phase_type='week')
+        self.add_differentiation_phases(ax, x_min, x_max, phase_type='week')
 
         # Add statistics annotation
         if response_stats:
