@@ -155,10 +155,19 @@ class WeeklyMetricsVisualizer(BaseMetricsVisualizer):
             ecolor=self.palette.ERROR_BAR,
             capsize=5,
             capthick=2,
-            label='Weekly Mean ± SE',
+            label='Weekly Mean ± SEM',
             alpha=0.9,
             zorder=2
         )
+
+        # Optimize X and Y axis limits after plotting
+        self.optimize_y_limits(ax, metric_data['Mean_Avg'].values)
+        self.optimize_x_limits(ax, metric_data['Week'].values)
+
+        # Add differentiation phases (after axis limits are set)
+        x_min = metric_data['Week'].min()
+        x_max = metric_data['Week'].max()
+        self.add_differentiation_phases(ax, x_min, x_max, phase_type='week')
 
         # Customize x-axis to show week labels
         ax.set_xticks(metric_data['Week'].values)
@@ -174,21 +183,19 @@ class WeeklyMetricsVisualizer(BaseMetricsVisualizer):
             pad=10
         )
 
+        # Add sample size and error bar info
+        n_samples = int(metric_data['N_Samples'].mean())
+        ax.text(0.02, 0.02, f'n={n_samples} (avg)\nError bars: SEM',
+               transform=ax.transAxes, fontsize=7,
+               verticalalignment='bottom', horizontalalignment='left',
+               bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
+                        edgecolor='gray', alpha=0.8, linewidth=0.5))
+
         # Legend
-        ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9)
+        ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9, fontsize=8)
 
         # Grid
         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
-
-        # Add info box
-        week_info = f"Week size: {self.week_size} days\nTotal weeks: {len(metric_data)}"
-        ax.text(
-            0.02, 0.98, week_info,
-            transform=ax.transAxes,
-            fontsize=7,
-            verticalalignment='top',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', alpha=0.4, edgecolor='none')
-        )
 
         return ax
 

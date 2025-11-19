@@ -13,6 +13,42 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
+# Constants for visualization settings
+class PlotSettings:
+    """Centralized plot settings and constants"""
+    # Phase colors
+    PHASE_COLORS = {
+        'early': '#E8F4F8',
+        'mid': '#FFF4E6',
+        'late': '#F0F8E8'
+    }
+
+    # Phase boundaries (in days)
+    EARLY_PHASE_END = 7
+    MID_PHASE_END = 14
+
+    # Plot styling
+    PHASE_ALPHA = 0.15
+    PHASE_LABEL_Y_POS = 0.98
+    PHASE_LABEL_FONTSIZE = 7
+
+    TREND_LINE_WIDTH = 2
+    TREND_LINE_ALPHA = 0.7
+
+    STATS_BOX_FONTSIZE = 8
+    STATS_BOX_ALPHA = 0.5
+
+    ERRORBAR_LINEWIDTH = 2
+    ERRORBAR_MARKERSIZE = 7
+    ERRORBAR_CAPSIZE = 4
+    ERRORBAR_CAPTHICK = 1.5
+
+    # Axis settings
+    Y_MARGIN = 0.15
+    GRID_ALPHA = 0.3
+    GRID_LINEWIDTH = 0.5
+
+
 class ScientificPalette:
     """
     Professional color palette for scientific publications
@@ -320,3 +356,178 @@ class BaseMetricsVisualizer:
 
         if close:
             plt.close(fig)
+
+    @staticmethod
+    def add_differentiation_phases(ax: plt.Axes, x_min: float, x_max: float, phase_type: str = 'day'):
+        """
+        Add visual background shading for differentiation phases
+
+        Parameters:
+        -----------
+        ax : plt.Axes
+            Axis to add phases to
+        x_min : float
+            Minimum x value (day or week number)
+        x_max : float
+            Maximum x value (day or week number)
+        phase_type : str
+            Type of x-axis ('day' or 'week')
+        """
+        # Get phase definitions based on actual data range
+        if phase_type == 'day':
+            phases = BaseMetricsVisualizer._get_day_phases(x_min, x_max)
+        else:  # week
+            phases = BaseMetricsVisualizer._get_week_phases(x_min, x_max)
+
+        # Add shaded regions and labels
+        x_range = ax.get_xlim()
+        x_range_width = x_range[1] - x_range[0]
+
+        for start, end, label, color in phases:
+            # Add background shading
+            ax.axvspan(start, end, alpha=PlotSettings.PHASE_ALPHA, color=color, zorder=0)
+
+            # Calculate x position as fraction for consistent placement
+            mid_x = (start + end) / 2
+            x_frac = (mid_x - x_range[0]) / x_range_width if x_range_width > 0 else 0.5
+
+            # Add phase label
+            ax.text(x_frac, PlotSettings.PHASE_LABEL_Y_POS, label,
+                   transform=ax.transAxes,
+                   ha='center', va='top',
+                   fontsize=PlotSettings.PHASE_LABEL_FONTSIZE,
+                   style='italic', color='gray',
+                   alpha=0.8, weight='bold',
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                            edgecolor='none', alpha=0.7))
+
+    @staticmethod
+    def _get_day_phases(x_min: float, x_max: float) -> List[Tuple[float, float, str, str]]:
+        """Get phase definitions for daily view based on data range"""
+        colors = PlotSettings.PHASE_COLORS
+        phases = []
+
+        # Early phase: 0-7 days
+        if x_min < PlotSettings.EARLY_PHASE_END:
+            phase_start = max(x_min, 0)
+            phase_end = min(x_max, PlotSettings.EARLY_PHASE_END)
+            if phase_end > phase_start:
+                phases.append((phase_start, phase_end, 'Early', colors['early']))
+
+        # Mid phase: 7-14 days
+        if x_max > PlotSettings.EARLY_PHASE_END and x_min < PlotSettings.MID_PHASE_END:
+            phase_start = max(x_min, PlotSettings.EARLY_PHASE_END)
+            phase_end = min(x_max, PlotSettings.MID_PHASE_END)
+            if phase_end > phase_start:
+                phases.append((phase_start, phase_end, 'Mid', colors['mid']))
+
+        # Late phase: 14+ days
+        if x_max > PlotSettings.MID_PHASE_END:
+            phase_start = max(x_min, PlotSettings.MID_PHASE_END)
+            phase_end = x_max
+            if phase_end > phase_start:
+                phases.append((phase_start, phase_end, 'Late', colors['late']))
+
+        # If no specific phases, just create a single phase
+        if not phases:
+            phases.append((x_min, x_max, 'Data Range', colors['early']))
+
+        return phases
+
+    @staticmethod
+    def _get_week_phases(x_min: float, x_max: float) -> List[Tuple[float, float, str, str]]:
+        """Get phase definitions for weekly view based on data range"""
+        colors = PlotSettings.PHASE_COLORS
+        mid_point = (x_min + x_max) / 2
+
+        return [
+            (x_min, mid_point, 'Early', colors['early']),
+            (mid_point, x_max, 'Late', colors['mid'])
+        ]
+
+    @staticmethod
+    def optimize_x_limits(ax: plt.Axes, x_data: np.ndarray, margin: float = 0.05):
+        """
+        Optimize X-axis limits based on data range
+
+        Parameters:
+        -----------
+        ax : plt.Axes
+            Axis to optimize
+        x_data : np.ndarray
+            X data values
+        margin : float
+            Margin as fraction of data range (default 5%)
+        """
+        # Remove NaN values
+        x_clean = x_data[~np.isnan(x_data)]
+
+        if len(x_clean) == 0:
+            return
+
+        x_min, x_max = x_clean.min(), x_clean.max()
+        x_range = x_max - x_min
+
+        # Add margin
+        if x_range > 0:
+            ax.set_xlim(x_min - margin * x_range, x_max + margin * x_range)
+        else:
+            # If all values are the same, add fixed margin
+            ax.set_xlim(x_min - 1, x_max + 1)
+
+    @staticmethod
+    def optimize_y_limits(ax: plt.Axes, y_data: np.ndarray, margin: float = None):
+        """
+        Optimize Y-axis limits based on data range
+
+        Parameters:
+        -----------
+        ax : plt.Axes
+            Axis to optimize
+        y_data : np.ndarray
+            Y data values
+        margin : float, optional
+            Margin as fraction of data range. If None, uses PlotSettings.Y_MARGIN
+        """
+        if margin is None:
+            margin = PlotSettings.Y_MARGIN
+
+        # Remove NaN values efficiently
+        y_clean = y_data[~np.isnan(y_data)]
+
+        if len(y_clean) == 0:
+            return
+
+        y_min, y_max = y_clean.min(), y_clean.max()
+        y_range = y_max - y_min
+
+        # Add margin
+        if y_range > 0:
+            ax.set_ylim(y_min - margin * y_range, y_max + margin * y_range)
+        else:
+            # If all values are the same, add fixed margin
+            ax.set_ylim(y_min - 1, y_max + 1)
+
+    @staticmethod
+    def calculate_grouped_statistics(data: pd.DataFrame, group_col: str,
+                                     value_col: str) -> pd.DataFrame:
+        """
+        Calculate statistics (mean, std, count, se) for grouped data
+
+        Parameters:
+        -----------
+        data : pd.DataFrame
+            Input dataframe
+        group_col : str
+            Column to group by
+        value_col : str
+            Column to calculate statistics on
+
+        Returns:
+        --------
+        pd.DataFrame
+            Dataframe with mean, std, count, se columns
+        """
+        grouped = data.groupby(group_col)[value_col].agg(['mean', 'std', 'count']).reset_index()
+        grouped['se'] = grouped['std'] / np.sqrt(grouped['count'])
+        return grouped

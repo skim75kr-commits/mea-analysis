@@ -72,11 +72,8 @@ class MetricsVisualizer(BaseMetricsVisualizer):
         # Sort by DIFF_DAY for proper line plotting
         metric_data = metric_data.sort_values('DIFF_DAY')
 
-        # Group by DIFF_DAY and calculate statistics
-        grouped = metric_data.groupby('DIFF_DAY')['Mean'].agg(['mean', 'std', 'count']).reset_index()
-
-        # Calculate standard error
-        grouped['se'] = grouped['std'] / np.sqrt(grouped['count'])
+        # Calculate statistics efficiently using base class helper
+        grouped = self.calculate_grouped_statistics(metric_data, 'DIFF_DAY', 'Mean')
 
         # Plot individual points first (so they appear behind the line)
         if show_individual_points and len(metric_data) < 500:  # Avoid clutter with too many points
@@ -103,19 +100,36 @@ class MetricsVisualizer(BaseMetricsVisualizer):
             ecolor=self.palette.ERROR_BAR,
             capsize=4,
             capthick=1.5,
-            label='Mean ± SE',
+            label='Mean ± SEM',
             alpha=0.9,
             zorder=2
         )
+
+        # Optimize X and Y axis limits after plotting
+        self.optimize_y_limits(ax, grouped['mean'].values)
+        self.optimize_x_limits(ax, grouped['DIFF_DAY'].values)
+
+        # Add differentiation phases (after axis limits are set)
+        x_min = grouped['DIFF_DAY'].min()
+        x_max = grouped['DIFF_DAY'].max()
+        self.add_differentiation_phases(ax, x_min, x_max, phase_type='day')
 
         # Formatting
         ax.set_xlabel('Differentiation Day (days)', fontsize=10, fontweight='bold')
         ax.set_ylabel('Value', fontsize=10, fontweight='bold')
         ax.set_title(self.format_metric_name(metric_name), fontsize=11, fontweight='bold', pad=10)
 
+        # Add sample size and error bar info
+        n_samples = int(grouped['count'].mean())
+        ax.text(0.02, 0.02, f'n={n_samples} (avg)\nError bars: SEM',
+               transform=ax.transAxes, fontsize=7,
+               verticalalignment='bottom', horizontalalignment='left',
+               bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
+                        edgecolor='gray', alpha=0.8, linewidth=0.5))
+
         # Legend
         if show_individual_points and len(metric_data) < 500:
-            ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9)
+            ax.legend(loc='best', frameon=True, fancybox=False, shadow=False, framealpha=0.9, fontsize=8)
 
         # Grid
         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
