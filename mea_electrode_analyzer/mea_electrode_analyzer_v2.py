@@ -473,7 +473,7 @@ class ElectrodeVisualizer:
 
     @timer
     def create_all_visualizations(self):
-        """모든 시각화 생성"""
+        """모든 시각화 생성 (Enhanced with light_code analysis)"""
         print("\n[VIZ] Creating visualizations...")
 
         viz_funcs = [
@@ -483,6 +483,13 @@ class ElectrodeVisualizer:
             self.plot_spike_comparison,
             self.plot_electrode_spatial_map,
             self.plot_metric_completeness,
+            # New: Light_code specific visualizations
+            self.plot_light_code_comprehensive_analysis,
+            self.plot_base_vs_stim_by_light_code,
+            self.plot_key_metrics_by_light_code,
+            self.plot_light_code_heatmap,
+            self.plot_isi_analysis,
+            self.plot_burst_detailed_analysis,
         ]
 
         for func in viz_funcs:
@@ -778,6 +785,655 @@ class ElectrodeVisualizer:
         plt.savefig(self.output_dir / 'metric_completeness.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
 
+    def plot_light_code_comprehensive_analysis(self):
+        """Light_code별 종합 분석 (number of spikes, firing rate, burst frequency, burst duration)"""
+        if self.df_selected.empty:
+            return
+
+        # 주요 metric 정의
+        key_metrics = {
+            'number_of_spikes': 'Number of Spikes',
+            'mean_firing_rate_hz': 'Mean Firing Rate (Hz)',
+            'burst_frequency_hz': 'Burst Frequency (Hz)',
+            'burst_duration_avg_s': 'Burst Duration (s)'
+        }
+
+        available_metrics = {k: v for k, v in key_metrics.items()
+                           if k in self.df_selected['Metric'].unique()}
+
+        if not available_metrics:
+            return
+
+        # STIM 데이터만 사용
+        stim_data = self.df_selected[self.df_selected['BASE_STIM'] == 'STIM']
+
+        if 'LIGHT_CODE' not in stim_data.columns:
+            return
+
+        light_codes = sorted(stim_data['LIGHT_CODE'].unique())
+        if len(light_codes) == 0:
+            return
+
+        n_metrics = len(available_metrics)
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        axes = axes.flatten()
+
+        for idx, (metric_key, metric_name) in enumerate(available_metrics.items()):
+            if idx >= 4:
+                break
+
+            ax = axes[idx]
+
+            metric_data = stim_data[stim_data['Metric'] == metric_key]
+
+            if metric_data.empty:
+                ax.text(0.5, 0.5, f'No data for {metric_name}',
+                       ha='center', va='center', transform=ax.transAxes)
+                continue
+
+            # Light_code별 평균값 계산
+            light_means = metric_data.groupby('LIGHT_CODE')['Value'].agg(['mean', 'std']).reset_index()
+            light_means = light_means.sort_values('LIGHT_CODE')
+
+            x_pos = np.arange(len(light_means))
+
+            # Bar plot with error bars
+            bars = ax.bar(x_pos, light_means['mean'], yerr=light_means['std'],
+                         capsize=5, alpha=0.7, edgecolor='black', linewidth=1.5)
+
+            # Color bars by light code
+            colors = plt.cm.Set3(np.linspace(0, 1, len(bars)))
+            for bar, color in zip(bars, colors):
+                bar.set_facecolor(color)
+
+            ax.set_xticks(x_pos)
+            ax.set_xticklabels(light_means['LIGHT_CODE'], rotation=45, ha='right')
+            ax.set_xlabel('Light Code', fontweight='bold', fontsize=11)
+            ax.set_ylabel('Value', fontweight='bold', fontsize=11)
+            ax.set_title(f'{metric_name}\nby Light Code (STIM)',
+                        fontweight='bold', fontsize=12)
+            ax.grid(axis='y', alpha=0.3)
+
+            # Add value labels on top of bars
+            for i, (mean_val, std_val) in enumerate(zip(light_means['mean'], light_means['std'])):
+                ax.text(i, mean_val + std_val, f'{mean_val:.1f}',
+                       ha='center', va='bottom', fontsize=9)
+
+        # Hide unused subplots
+        for idx in range(len(available_metrics), 4):
+            axes[idx].set_visible(False)
+
+        plt.suptitle('Comprehensive Analysis by Light Code\n(Selected Electrodes, STIM only)',
+                    fontweight='bold', fontsize=14, y=0.995)
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'light_code_comprehensive_analysis.png',
+                   dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_base_vs_stim_by_light_code(self):
+        """BASE vs STIM 비교 (Light_code별)"""
+        if self.df_selected.empty:
+            return
+
+        if 'LIGHT_CODE' not in self.df_selected.columns:
+            return
+
+        # number_of_spikes와 mean_firing_rate_hz 비교
+        key_metrics = ['number_of_spikes', 'mean_firing_rate_hz']
+        available_metrics = [m for m in key_metrics if m in self.df_selected['Metric'].unique()]
+
+        if not available_metrics:
+            return
+
+        light_codes = sorted(self.df_selected['LIGHT_CODE'].unique())
+        n_metrics = len(available_metrics)
+
+        fig, axes = plt.subplots(1, n_metrics, figsize=(8*n_metrics, 6))
+        if n_metrics == 1:
+            axes = [axes]
+
+        for idx, metric in enumerate(available_metrics):
+            ax = axes[idx]
+
+            metric_data = self.df_selected[self.df_selected['Metric'] == metric]
+
+            # BASE vs STIM 그룹화
+            base_data = metric_data[metric_data['BASE_STIM'] == 'BASE']
+            stim_data = metric_data[metric_data['BASE_STIM'] == 'STIM']
+
+            base_means = base_data.groupby('LIGHT_CODE')['Value'].mean()
+            stim_means = stim_data.groupby('LIGHT_CODE')['Value'].mean()
+
+            # Align light codes
+            all_light_codes = sorted(set(base_means.index) | set(stim_means.index))
+
+            base_vals = [base_means.get(lc, 0) for lc in all_light_codes]
+            stim_vals = [stim_means.get(lc, 0) for lc in all_light_codes]
+
+            x_pos = np.arange(len(all_light_codes))
+            width = 0.35
+
+            ax.bar(x_pos - width/2, base_vals, width, label='BASE',
+                  alpha=0.8, edgecolor='black', color='skyblue')
+            ax.bar(x_pos + width/2, stim_vals, width, label='STIM',
+                  alpha=0.8, edgecolor='black', color='coral')
+
+            ax.set_xticks(x_pos)
+            ax.set_xticklabels(all_light_codes, rotation=45, ha='right')
+            ax.set_xlabel('Light Code', fontweight='bold')
+            ax.set_ylabel('Mean Value', fontweight='bold')
+            ax.set_title(f'{metric.replace("_", " ").title()}\nBASE vs STIM by Light Code',
+                        fontweight='bold')
+            ax.legend()
+            ax.grid(axis='y', alpha=0.3)
+
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'base_vs_stim_by_light_code.png',
+                   dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_key_metrics_by_light_code(self):
+        """주요 metric들의 light_code별 박스플롯"""
+        if self.df_selected.empty:
+            return
+
+        if 'LIGHT_CODE' not in self.df_selected.columns:
+            return
+
+        key_metrics = ['number_of_spikes', 'mean_firing_rate_hz', 'burst_frequency_hz']
+        available_metrics = [m for m in key_metrics if m in self.df_selected['Metric'].unique()]
+
+        if not available_metrics:
+            return
+
+        # STIM 데이터만
+        stim_data = self.df_selected[self.df_selected['BASE_STIM'] == 'STIM']
+        light_codes = sorted(stim_data['LIGHT_CODE'].unique())
+
+        n_metrics = len(available_metrics)
+        fig, axes = plt.subplots(1, n_metrics, figsize=(6*n_metrics, 6))
+
+        if n_metrics == 1:
+            axes = [axes]
+
+        for idx, metric in enumerate(available_metrics):
+            ax = axes[idx]
+
+            metric_data = stim_data[stim_data['Metric'] == metric]
+
+            if metric_data.empty:
+                continue
+
+            # Light code별 데이터 준비
+            data_by_light = [metric_data[metric_data['LIGHT_CODE'] == lc]['Value'].values
+                            for lc in light_codes]
+
+            bp = ax.boxplot(data_by_light, labels=light_codes, patch_artist=True,
+                           showmeans=True, meanprops=dict(marker='D', markerfacecolor='red',
+                                                         markeredgecolor='red'))
+
+            # 색상 적용
+            colors = plt.cm.Set3(np.linspace(0, 1, len(bp['boxes'])))
+            for patch, color in zip(bp['boxes'], colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+
+            ax.set_xlabel('Light Code', fontweight='bold')
+            ax.set_ylabel('Value', fontweight='bold')
+            ax.set_title(f'{metric.replace("_", " ").title()}\nDistribution by Light Code (STIM)',
+                        fontweight='bold')
+            ax.grid(axis='y', alpha=0.3)
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'key_metrics_by_light_code_boxplots.png',
+                   dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_light_code_heatmap(self):
+        """Light_code × Metric 히트맵"""
+        if self.df_selected.empty:
+            return
+
+        if 'LIGHT_CODE' not in self.df_selected.columns:
+            return
+
+        # STIM 데이터만 사용
+        stim_data = self.df_selected[self.df_selected['BASE_STIM'] == 'STIM']
+
+        # 주요 metric만
+        key_metrics = [
+            'number_of_spikes', 'mean_firing_rate_hz', 'number_of_bursts',
+            'burst_frequency_hz', 'spikes_per_burst_avg', 'burst_duration_avg_s'
+        ]
+
+        available_metrics = [m for m in key_metrics if m in stim_data['Metric'].unique()]
+
+        if not available_metrics:
+            return
+
+        filtered_data = stim_data[stim_data['Metric'].isin(available_metrics)]
+
+        # Pivot table
+        pivot = filtered_data.pivot_table(
+            index='LIGHT_CODE',
+            columns='Metric',
+            values='Value',
+            aggfunc='mean'
+        )
+
+        if pivot.empty:
+            return
+
+        # Z-score normalization
+        pivot_norm = (pivot - pivot.mean()) / pivot.std()
+
+        fig, ax = plt.subplots(figsize=(max(12, len(pivot.columns) * 1.5),
+                                        max(8, len(pivot.index) * 0.8)))
+
+        sns.heatmap(pivot_norm, annot=True, fmt='.2f', cmap='RdYlGn', center=0,
+                   cbar_kws={'label': 'Z-score'},
+                   linewidths=1, linecolor='white', ax=ax,
+                   annot_kws={'size': 10})
+
+        ax.set_title('Light Code × Key Metrics Heatmap\n(Z-score normalized, STIM only)',
+                    fontweight='bold', fontsize=14, pad=15)
+        ax.set_xlabel('Metrics', fontweight='bold', fontsize=12)
+        ax.set_ylabel('Light Code', fontweight='bold', fontsize=12)
+
+        # Rotate labels
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'light_code_metric_heatmap.png',
+                   dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_isi_analysis(self):
+        """ISI (Inter-Spike Interval) 상세 분석"""
+        if self.df_selected.empty:
+            return
+
+        # ISI 관련 metric
+        isi_metrics = [m for m in self.df_selected['Metric'].unique()
+                      if 'isi' in m.lower() or 'interval' in m.lower()]
+
+        if not isi_metrics:
+            return
+
+        # STIM 데이터
+        stim_data = self.df_selected[self.df_selected['BASE_STIM'] == 'STIM']
+        isi_data = stim_data[stim_data['Metric'].isin(isi_metrics)]
+
+        if isi_data.empty:
+            return
+
+        n_metrics = min(len(isi_metrics), 6)
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        axes = axes.flatten()
+
+        for idx, metric in enumerate(isi_metrics[:6]):
+            ax = axes[idx]
+
+            metric_data = isi_data[isi_data['Metric'] == metric]
+
+            if 'LIGHT_CODE' in metric_data.columns:
+                light_codes = sorted(metric_data['LIGHT_CODE'].unique())
+                data_by_light = [metric_data[metric_data['LIGHT_CODE'] == lc]['Value'].values
+                               for lc in light_codes]
+
+                bp = ax.boxplot(data_by_light, labels=light_codes, patch_artist=True)
+
+                colors = plt.cm.Pastel1(np.linspace(0, 1, len(bp['boxes'])))
+                for patch, color in zip(bp['boxes'], colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.8)
+
+                ax.set_xlabel('Light Code', fontweight='bold')
+            else:
+                ax.hist(metric_data['Value'].dropna(), bins=20,
+                       edgecolor='black', alpha=0.7, color='lightblue')
+                ax.set_xlabel('Value', fontweight='bold')
+
+            ax.set_ylabel('Value', fontweight='bold')
+            ax.set_title(metric.replace('_', ' ').title(), fontweight='bold', fontsize=10)
+            ax.grid(alpha=0.3)
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+
+        # Hide unused subplots
+        for idx in range(len(isi_metrics), 6):
+            axes[idx].set_visible(False)
+
+        plt.suptitle('ISI (Inter-Spike Interval) Detailed Analysis\n(STIM only)',
+                    fontweight='bold', fontsize=14)
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'isi_detailed_analysis.png',
+                   dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_burst_detailed_analysis(self):
+        """Burst 상세 분석 (duration, spikes per burst, IBI 등)"""
+        if self.df_selected.empty:
+            return
+
+        # Burst 관련 metric
+        burst_metrics = [
+            'number_of_bursts', 'burst_frequency_hz', 'burst_duration_avg_s',
+            'spikes_per_burst_avg', 'inter_burst_interval_avg_s', 'burst_percentage'
+        ]
+
+        available_burst_metrics = [m for m in burst_metrics
+                                  if m in self.df_selected['Metric'].unique()]
+
+        if not available_burst_metrics:
+            return
+
+        # STIM 데이터
+        stim_data = self.df_selected[self.df_selected['BASE_STIM'] == 'STIM']
+
+        n_metrics = min(len(available_burst_metrics), 6)
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        axes = axes.flatten()
+
+        for idx, metric in enumerate(available_burst_metrics[:6]):
+            ax = axes[idx]
+
+            metric_data = stim_data[stim_data['Metric'] == metric]
+
+            if metric_data.empty:
+                ax.text(0.5, 0.5, 'No data', ha='center', va='center',
+                       transform=ax.transAxes)
+                continue
+
+            if 'LIGHT_CODE' in metric_data.columns:
+                light_codes = sorted(metric_data['LIGHT_CODE'].unique())
+
+                # Light code별 평균과 표준편차
+                summary = metric_data.groupby('LIGHT_CODE')['Value'].agg(['mean', 'std']).reset_index()
+                summary = summary.sort_values('LIGHT_CODE')
+
+                x_pos = np.arange(len(summary))
+                bars = ax.bar(x_pos, summary['mean'], yerr=summary['std'],
+                             capsize=5, alpha=0.7, edgecolor='black')
+
+                colors = plt.cm.Set2(np.linspace(0, 1, len(bars)))
+                for bar, color in zip(bars, colors):
+                    bar.set_facecolor(color)
+
+                ax.set_xticks(x_pos)
+                ax.set_xticklabels(summary['LIGHT_CODE'], rotation=45, ha='right')
+                ax.set_xlabel('Light Code', fontweight='bold')
+            else:
+                # Well별 평균
+                well_means = metric_data.groupby('Well')['Value'].mean().sort_values(ascending=False)
+                ax.bar(range(len(well_means)), well_means.values,
+                      alpha=0.7, edgecolor='black')
+                ax.set_xticks(range(len(well_means)))
+                ax.set_xticklabels(well_means.index, rotation=45, ha='right')
+                ax.set_xlabel('Well', fontweight='bold')
+
+            ax.set_ylabel('Value', fontweight='bold')
+            ax.set_title(metric.replace('_', ' ').title(), fontweight='bold', fontsize=10)
+            ax.grid(axis='y', alpha=0.3)
+
+        # Hide unused subplots
+        for idx in range(len(available_burst_metrics), 6):
+            axes[idx].set_visible(False)
+
+        plt.suptitle('Burst Properties Detailed Analysis\n(STIM only)',
+                    fontweight='bold', fontsize=14)
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'burst_detailed_analysis.png',
+                   dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+
+# =============================================================================
+# 7B. 전극 Dashboard 클래스 (신규 추가)
+# =============================================================================
+
+class ElectrodeDashboard:
+    """전극 분석 종합 Dashboard 생성"""
+
+    def __init__(self, df_all, df_selected, selected_stats, output_dir):
+        self.df_all = df_all
+        self.df_selected = df_selected
+        self.selected_stats = selected_stats
+        self.output_dir = Path(output_dir)
+
+    @timer
+    def create_dashboard(self):
+        """종합 Dashboard 생성"""
+        print("\n[DASHBOARD] Creating comprehensive dashboard...")
+
+        fig = plt.figure(figsize=(20, 12))
+        gs = fig.add_gridspec(3, 4, hspace=0.3, wspace=0.3)
+
+        # 1. 전극 선택 개요 (좌상단)
+        ax1 = fig.add_subplot(gs[0, :2])
+        self._plot_selection_summary(ax1)
+
+        # 2. Light_code별 spikes (우상단)
+        ax2 = fig.add_subplot(gs[0, 2:])
+        self._plot_light_code_spikes(ax2)
+
+        # 3. BASE vs STIM comparison (중간 왼쪽)
+        ax3 = fig.add_subplot(gs[1, 0])
+        self._plot_base_stim_scatter(ax3)
+
+        # 4. Firing rate by light_code (중간 중앙)
+        ax4 = fig.add_subplot(gs[1, 1])
+        self._plot_firing_rate_light(ax4)
+
+        # 5. Burst frequency (중간 우측 1)
+        ax5 = fig.add_subplot(gs[1, 2])
+        self._plot_burst_frequency(ax5)
+
+        # 6. Spatial map (중간 우측 2)
+        ax6 = fig.add_subplot(gs[1, 3])
+        self._plot_spatial_mini(ax6)
+
+        # 7-10. 하단 4개: 주요 metric 분포
+        ax7 = fig.add_subplot(gs[2, 0])
+        ax8 = fig.add_subplot(gs[2, 1])
+        ax9 = fig.add_subplot(gs[2, 2])
+        ax10 = fig.add_subplot(gs[2, 3])
+        self._plot_metric_distributions([ax7, ax8, ax9, ax10])
+
+        # Title
+        fig.suptitle('MEA Electrode Analysis - Comprehensive Dashboard',
+                    fontweight='bold', fontsize=18, y=0.98)
+
+        plt.savefig(self.output_dir / 'ELECTRODE_MASTER_DASHBOARD.png',
+                   dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+        print("  ✓ Dashboard created")
+
+    def _plot_selection_summary(self, ax):
+        """전극 선택 요약"""
+        if self.selected_stats is None or self.selected_stats.empty:
+            ax.text(0.5, 0.5, 'No selected electrodes',
+                   ha='center', va='center', transform=ax.transAxes)
+            return
+
+        # Well별 선택된 전극 수
+        well_counts = self.selected_stats['Well'].value_counts().sort_index()
+
+        ax.bar(range(len(well_counts)), well_counts.values,
+              alpha=0.7, edgecolor='black', color='steelblue')
+        ax.set_xticks(range(len(well_counts)))
+        ax.set_xticklabels(well_counts.index, rotation=45, ha='right', fontsize=9)
+        ax.set_xlabel('Well', fontweight='bold')
+        ax.set_ylabel('Selected Electrodes', fontweight='bold')
+        ax.set_title('Selected Electrodes per Well', fontweight='bold', fontsize=11)
+        ax.grid(axis='y', alpha=0.3)
+
+    def _plot_light_code_spikes(self, ax):
+        """Light_code별 spikes"""
+        if self.df_selected.empty or 'LIGHT_CODE' not in self.df_selected.columns:
+            ax.text(0.5, 0.5, 'No light_code data',
+                   ha='center', va='center', transform=ax.transAxes)
+            return
+
+        stim_data = self.df_selected[
+            (self.df_selected['BASE_STIM'] == 'STIM') &
+            (self.df_selected['Metric'] == 'number_of_spikes')
+        ]
+
+        if stim_data.empty:
+            return
+
+        light_means = stim_data.groupby('LIGHT_CODE')['Value'].mean().sort_index()
+
+        bars = ax.bar(range(len(light_means)), light_means.values,
+                     alpha=0.8, edgecolor='black')
+
+        colors = plt.cm.Set3(np.linspace(0, 1, len(bars)))
+        for bar, color in zip(bars, colors):
+            bar.set_facecolor(color)
+
+        ax.set_xticks(range(len(light_means)))
+        ax.set_xticklabels(light_means.index, rotation=45, ha='right', fontsize=9)
+        ax.set_xlabel('Light Code', fontweight='bold')
+        ax.set_ylabel('Mean Spikes', fontweight='bold')
+        ax.set_title('Number of Spikes by Light Code (STIM)',
+                    fontweight='bold', fontsize=11)
+        ax.grid(axis='y', alpha=0.3)
+
+    def _plot_base_stim_scatter(self, ax):
+        """BASE vs STIM scatter"""
+        if self.selected_stats is None or self.selected_stats.empty:
+            return
+
+        ax.scatter(self.selected_stats['spikes_base'],
+                  self.selected_stats['spikes_stim'],
+                  alpha=0.6, s=40, edgecolor='black', c='coral')
+
+        max_val = max(self.selected_stats['spikes_base'].max(),
+                     self.selected_stats['spikes_stim'].max())
+        ax.plot([0, max_val], [0, max_val], 'k--', alpha=0.5, label='y=x')
+
+        ax.set_xlabel('BASE Spikes', fontweight='bold', fontsize=10)
+        ax.set_ylabel('STIM Spikes', fontweight='bold', fontsize=10)
+        ax.set_title('BASE vs STIM', fontweight='bold', fontsize=11)
+        ax.legend(fontsize=8)
+        ax.grid(alpha=0.3)
+
+    def _plot_firing_rate_light(self, ax):
+        """Firing rate by light_code"""
+        if self.df_selected.empty or 'LIGHT_CODE' not in self.df_selected.columns:
+            return
+
+        stim_data = self.df_selected[
+            (self.df_selected['BASE_STIM'] == 'STIM') &
+            (self.df_selected['Metric'] == 'mean_firing_rate_hz')
+        ]
+
+        if stim_data.empty:
+            return
+
+        light_means = stim_data.groupby('LIGHT_CODE')['Value'].mean().sort_index()
+
+        ax.bar(range(len(light_means)), light_means.values,
+              alpha=0.7, edgecolor='black', color='lightgreen')
+        ax.set_xticks(range(len(light_means)))
+        ax.set_xticklabels(light_means.index, rotation=45, ha='right', fontsize=9)
+        ax.set_xlabel('Light Code', fontweight='bold', fontsize=10)
+        ax.set_ylabel('Firing Rate (Hz)', fontweight='bold', fontsize=10)
+        ax.set_title('Firing Rate by Light Code', fontweight='bold', fontsize=11)
+        ax.grid(axis='y', alpha=0.3)
+
+    def _plot_burst_frequency(self, ax):
+        """Burst frequency"""
+        if self.df_selected.empty:
+            return
+
+        stim_data = self.df_selected[
+            (self.df_selected['BASE_STIM'] == 'STIM') &
+            (self.df_selected['Metric'] == 'burst_frequency_hz')
+        ]
+
+        if stim_data.empty:
+            ax.text(0.5, 0.5, 'No burst data',
+                   ha='center', va='center', transform=ax.transAxes)
+            return
+
+        if 'LIGHT_CODE' in stim_data.columns:
+            light_means = stim_data.groupby('LIGHT_CODE')['Value'].mean().sort_index()
+            ax.bar(range(len(light_means)), light_means.values,
+                  alpha=0.7, edgecolor='black', color='salmon')
+            ax.set_xticks(range(len(light_means)))
+            ax.set_xticklabels(light_means.index, rotation=45, ha='right', fontsize=9)
+            ax.set_xlabel('Light Code', fontweight='bold', fontsize=10)
+        else:
+            ax.hist(stim_data['Value'].dropna(), bins=15,
+                   edgecolor='black', alpha=0.7, color='salmon')
+            ax.set_xlabel('Burst Frequency (Hz)', fontweight='bold', fontsize=10)
+
+        ax.set_ylabel('Value', fontweight='bold', fontsize=10)
+        ax.set_title('Burst Frequency', fontweight='bold', fontsize=11)
+        ax.grid(alpha=0.3)
+
+    def _plot_spatial_mini(self, ax):
+        """24-well spatial map (mini)"""
+        if self.selected_stats is None or self.selected_stats.empty:
+            return
+
+        rows = ['A', 'B', 'C', 'D']
+        cols = [1, 2, 3, 4, 5, 6]
+
+        well_counts = self.selected_stats['Well'].value_counts()
+
+        matrix = np.zeros((len(rows), len(cols)))
+        for well, count in well_counts.items():
+            if len(well) >= 2:
+                row_idx = rows.index(well[0])
+                col_idx = cols.index(int(well[1]))
+                matrix[row_idx, col_idx] = count
+
+        im = ax.imshow(matrix, cmap='YlOrRd', aspect='auto')
+
+        ax.set_xticks(range(len(cols)))
+        ax.set_yticks(range(len(rows)))
+        ax.set_xticklabels(cols, fontsize=9)
+        ax.set_yticklabels(rows, fontsize=9)
+
+        for i in range(len(rows)):
+            for j in range(len(cols)):
+                ax.text(j, i, int(matrix[i, j]),
+                       ha="center", va="center", color="black",
+                       fontsize=9, fontweight='bold')
+
+        ax.set_title('Spatial Distribution', fontweight='bold', fontsize=11)
+
+    def _plot_metric_distributions(self, axes):
+        """주요 metric 분포"""
+        if self.df_selected.empty:
+            return
+
+        metrics = ['number_of_spikes', 'mean_firing_rate_hz',
+                  'burst_frequency_hz', 'burst_duration_avg_s']
+
+        stim_data = self.df_selected[self.df_selected['BASE_STIM'] == 'STIM']
+
+        for ax, metric in zip(axes, metrics):
+            metric_data = stim_data[stim_data['Metric'] == metric]
+
+            if metric_data.empty:
+                ax.text(0.5, 0.5, f'No {metric}',
+                       ha='center', va='center', transform=ax.transAxes)
+                continue
+
+            ax.hist(metric_data['Value'].dropna(), bins=15,
+                   edgecolor='black', alpha=0.7, color='skyblue')
+            ax.set_xlabel('Value', fontweight='bold', fontsize=9)
+            ax.set_ylabel('Frequency', fontweight='bold', fontsize=9)
+            ax.set_title(metric.replace('_', ' ').title(),
+                        fontweight='bold', fontsize=10)
+            ax.grid(alpha=0.3)
+
 
 # =============================================================================
 # 8. 파이프라인 클래스 V2 (최적화 & 시각화 강화)
@@ -906,6 +1562,18 @@ class ElectrodeAnalysisPipelineV2:
         )
         visualizer.create_all_visualizations()
         self.performance.record('Stage 5: Visualizations', time.time() - stage_start)
+
+        # 5B) Dashboard 생성 (v2.0 신규)
+        stage_start = time.time()
+        print('\n[STAGE 5B] Creating master dashboard...')
+        dashboard = ElectrodeDashboard(
+            self.df_all,
+            self.df_selected,
+            self.selected_stats,
+            self.output_dir
+        )
+        dashboard.create_dashboard()
+        self.performance.record('Stage 5B: Dashboard', time.time() - stage_start)
 
         # 6) 최종 리포트
         self._generate_final_report()
