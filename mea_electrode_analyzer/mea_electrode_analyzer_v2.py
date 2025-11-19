@@ -1451,8 +1451,15 @@ class LightResponseAnalyzer:
         self.response_data = None
 
     @timer
-    def calculate_responses(self):
-        """BASE 대비 STIM의 response 계산 (difference)"""
+    def calculate_responses(self, filter_positive_only=True):
+        """
+        BASE 대비 STIM의 response 계산 (difference)
+
+        Parameters:
+        -----------
+        filter_positive_only : bool
+            True일 경우 response > 0 (STIM > BASE)인 전극만 포함
+        """
         print("\n[LIGHT RESPONSE] Calculating responses...")
 
         if self.df_selected.empty:
@@ -1502,6 +1509,10 @@ class LightResponseAnalyzer:
                     # Fold change
                     fold_change = (stim_val + 1e-6) / (base_val + 1e-6)
 
+                    # 필터링: response > 0인 것만 포함 (옵션)
+                    if filter_positive_only and response <= 0:
+                        continue
+
                     responses.append({
                         'Electrode_ID': electrode_id,
                         'Well': well,
@@ -1522,6 +1533,8 @@ class LightResponseAnalyzer:
             self.response_data.to_csv(csv_path, index=False)
             print(f"  ✓ Response data saved: {csv_path.name}")
             print(f"  ✓ Calculated {len(self.response_data)} responses")
+            if filter_positive_only:
+                print(f"  ✓ Filtered to positive responses only (STIM > BASE)")
         else:
             print("  ⚠ No response data calculated")
 
@@ -1554,7 +1567,7 @@ class LightResponseAnalyzer:
         return self
 
     def plot_response_by_electrode(self):
-        """각 light_code별로 electrode별 response histogram"""
+        """각 light_code별로 electrode별 BASE vs STIM 비교 (grouped bar)"""
         if self.response_data is None or self.response_data.empty:
             return
 
@@ -1573,36 +1586,43 @@ class LightResponseAnalyzer:
                 # Electrode ID로 정렬
                 light_data = light_data.sort_values('Electrode_ID')
 
-                fig, ax = plt.subplots(figsize=(max(14, len(light_data) * 0.3), 6))
+                fig, ax = plt.subplots(figsize=(max(14, len(light_data) * 0.4), 6))
 
-                # Bar plot
+                # Grouped bar plot: BASE vs STIM
                 x_pos = np.arange(len(light_data))
-                colors = ['green' if r > 0 else 'red' for r in light_data['Response']]
+                width = 0.35
 
-                bars = ax.bar(x_pos, light_data['Response'], color=colors,
-                             alpha=0.7, edgecolor='black', linewidth=1)
+                # BASE values
+                bars_base = ax.bar(x_pos - width/2, light_data['BASE_Value'], width,
+                                  label='BASE', alpha=0.8, edgecolor='black',
+                                  color='skyblue', linewidth=1)
+
+                # STIM values
+                bars_stim = ax.bar(x_pos + width/2, light_data['STIM_Value'], width,
+                                  label='STIM', alpha=0.8, edgecolor='black',
+                                  color='coral', linewidth=1)
 
                 # X축: Electrode ID
                 ax.set_xticks(x_pos)
                 ax.set_xticklabels(light_data['Electrode_ID'], rotation=90, ha='right', fontsize=8)
                 ax.set_xlabel('Electrode ID', fontweight='bold')
-                ax.set_ylabel(f'Response ({metric.replace("_", " ").title()})', fontweight='bold')
-                ax.set_title(f'Light Response by Electrode\n{metric.replace("_", " ").title()} - Light Code: {light_code}',
+                ax.set_ylabel(f'{metric.replace("_", " ").title()}', fontweight='bold')
+                ax.set_title(f'BASE vs STIM by Electrode\n{metric.replace("_", " ").title()} - Light Code: {light_code}',
                             fontweight='bold', fontsize=12)
 
-                # Zero line
-                ax.axhline(0, color='black', linestyle='-', linewidth=1, alpha=0.3)
+                # Legend
+                ax.legend(loc='upper right', fontsize=10)
 
                 # Grid
                 ax.grid(axis='y', alpha=0.3)
 
                 plt.tight_layout()
-                filename = f'response_by_electrode_{metric}_{light_code}.png'
+                filename = f'base_vs_stim_by_electrode_{metric}_{light_code}.png'
                 plt.savefig(self.output_dir / filename, dpi=300, bbox_inches='tight')
                 plt.close(fig)
 
     def plot_response_by_light_code(self):
-        """Light_code별 평균 response 비교"""
+        """Light_code별 평균 response 비교 (mean ± SEM)"""
         if self.response_data is None or self.response_data.empty:
             return
 
@@ -1618,33 +1638,35 @@ class LightResponseAnalyzer:
 
             metric_data = self.response_data[self.response_data['Metric'] == metric]
 
-            # Light_code별 평균 response
-            light_summary = metric_data.groupby('LIGHT_CODE')['Response'].agg(['mean', 'std']).reset_index()
+            # Light_code별 평균 response와 SEM 계산
+            light_summary = metric_data.groupby('LIGHT_CODE')['Response'].agg(['mean', 'std', 'count']).reset_index()
+            # SEM = std / sqrt(n)
+            light_summary['sem'] = light_summary['std'] / np.sqrt(light_summary['count'])
             light_summary = light_summary.sort_values('LIGHT_CODE')
 
             x_pos = np.arange(len(light_summary))
 
-            # Bar plot with error bars
+            # Bar plot with SEM error bars
             colors = ['green' if m > 0 else 'red' for m in light_summary['mean']]
-            bars = ax.bar(x_pos, light_summary['mean'], yerr=light_summary['std'],
+            bars = ax.bar(x_pos, light_summary['mean'], yerr=light_summary['sem'],
                          capsize=5, color=colors, alpha=0.7, edgecolor='black', linewidth=1.5)
 
             ax.set_xticks(x_pos)
             ax.set_xticklabels(light_summary['LIGHT_CODE'], rotation=45, ha='right')
             ax.set_xlabel('Light Code', fontweight='bold')
-            ax.set_ylabel('Mean Response', fontweight='bold')
-            ax.set_title(f'{metric.replace("_", " ").title()}\nMean Response by Light Code',
+            ax.set_ylabel('Mean Response ± SEM', fontweight='bold')
+            ax.set_title(f'{metric.replace("_", " ").title()}\nMean Response by Light Code (Positive Responses Only)',
                         fontweight='bold')
 
-            # Zero line
-            ax.axhline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.5)
+            # Zero line (reference - not relevant for positive-only data)
+            # ax.axhline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.5)
             ax.grid(axis='y', alpha=0.3)
 
-            # Add value labels
-            for i, (mean_val, std_val) in enumerate(zip(light_summary['mean'], light_summary['std'])):
-                y_pos = mean_val + std_val if mean_val > 0 else mean_val - std_val
-                ax.text(i, y_pos, f'{mean_val:.1f}', ha='center', va='bottom' if mean_val > 0 else 'top',
-                       fontsize=9, fontweight='bold')
+            # Add value labels with SEM
+            for i, (mean_val, sem_val) in enumerate(zip(light_summary['mean'], light_summary['sem'])):
+                y_pos = mean_val + sem_val
+                ax.text(i, y_pos, f'{mean_val:.1f}±{sem_val:.1f}', ha='center', va='bottom',
+                       fontsize=8, fontweight='bold')
 
         plt.tight_layout()
         plt.savefig(self.output_dir / 'response_by_light_code_summary.png', dpi=300, bbox_inches='tight')
@@ -1777,7 +1799,7 @@ class LightResponseAnalyzer:
             plt.close(fig)
 
     def plot_fold_change_analysis(self):
-        """Fold change 분석"""
+        """Fold change 분석 (mean ± SEM)"""
         if self.response_data is None or self.response_data.empty:
             return
 
@@ -1788,21 +1810,23 @@ class LightResponseAnalyzer:
 
             fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-            # 1. Fold change by light_code
+            # 1. Fold change by light_code with SEM
             ax1 = axes[0]
-            light_summary = metric_data.groupby('LIGHT_CODE')['Fold_Change'].agg(['mean', 'std']).reset_index()
+            light_summary = metric_data.groupby('LIGHT_CODE')['Fold_Change'].agg(['mean', 'std', 'count']).reset_index()
+            # SEM = std / sqrt(n)
+            light_summary['sem'] = light_summary['std'] / np.sqrt(light_summary['count'])
             light_summary = light_summary.sort_values('LIGHT_CODE')
 
             x_pos = np.arange(len(light_summary))
-            ax1.bar(x_pos, light_summary['mean'], yerr=light_summary['std'],
+            ax1.bar(x_pos, light_summary['mean'], yerr=light_summary['sem'],
                    capsize=5, alpha=0.7, edgecolor='black', color='orange')
 
             ax1.axhline(1, color='black', linestyle='--', linewidth=1.5, label='No change (FC=1)')
             ax1.set_xticks(x_pos)
             ax1.set_xticklabels(light_summary['LIGHT_CODE'], rotation=45, ha='right')
             ax1.set_xlabel('Light Code', fontweight='bold')
-            ax1.set_ylabel('Mean Fold Change', fontweight='bold')
-            ax1.set_title('Mean Fold Change by Light Code', fontweight='bold')
+            ax1.set_ylabel('Mean Fold Change ± SEM', fontweight='bold')
+            ax1.set_title('Mean Fold Change by Light Code (Positive Responses Only)', fontweight='bold')
             ax1.legend()
             ax1.grid(axis='y', alpha=0.3)
 
