@@ -1009,3 +1009,11 @@ if __name__ == "__main__":
         use_cache=True,
     )
     pipeline.run()
+
+
+# =============================================================================
+# ALIAS FOR BACKWARD COMPATIBILITY
+# =============================================================================
+# 기존 코드와의 호환성을 위해 ElectrodeAnalysisPipeline alias 제공
+ElectrodeAnalysisPipeline = ElectrodeAnalysisPipelineV2
+ElectrodeFormatLoader = ElectrodeFormatLoaderV2
