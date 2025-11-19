@@ -557,57 +557,70 @@ class LightResponseAnalyzer:
         return self
     
     def _analyze_overall(self):
-        """전체 light response 분석"""
+        """전체 light response 분석 - 모든 LIGHT_CODE별로 구분"""
         baseline = self.df[
-            (self.df['BASE_STIM'] == 'BASE') & 
+            (self.df['BASE_STIM'] == 'BASE') &
             (self.df['EXP_TYPE'] == 'CONTROL')
         ]
         stim = self.df[
-            (self.df['BASE_STIM'] == 'STIM') & 
+            (self.df['BASE_STIM'] == 'STIM') &
             (self.df['EXP_TYPE'] == 'CONTROL')
         ]
-        
+
         if baseline.empty or stim.empty:
             print('  ⚠ No light response data found!')
             return
-        
+
+        # 모든 LIGHT_CODE 찾기
+        all_light_codes = sorted(set(baseline['LIGHT_CODE'].unique()) | set(stim['LIGHT_CODE'].unique()))
+        print(f'  Found light codes: {all_light_codes}')
+
         results = []
         for well in sorted(set(baseline['Well'].unique()) & set(stim['Well'].unique())):
             well_base = baseline[baseline['Well'] == well]
             well_stim = stim[stim['Well'] == well]
-            
-            for metric in sorted(set(well_base['Metric'].unique()) & set(well_stim['Metric'].unique())):
-                base_vals = well_base[well_base['Metric'] == metric]['Value']
-                stim_vals = well_stim[well_stim['Metric'] == metric]['Value']
-                
-                if len(base_vals) == 0 or len(stim_vals) == 0:
+
+            # 각 LIGHT_CODE별로 분석
+            for light_code in all_light_codes:
+                # 특정 LIGHT_CODE의 baseline과 stim 필터링
+                lc_base = well_base[well_base['LIGHT_CODE'] == light_code]
+                lc_stim = well_stim[well_stim['LIGHT_CODE'] == light_code]
+
+                if lc_base.empty or lc_stim.empty:
                     continue
-                
-                base_mean = base_vals.mean()
-                stim_mean = stim_vals.mean()
-                response = stim_mean - base_mean
-                pct_change = (response / base_mean * 100) if base_mean != 0 else 0
-                
-                light_code = well_stim['LIGHT_CODE'].iloc[0]
-                
-                results.append({
-                    'Well': well,
-                    'Metric': metric,
-                    'Baseline': base_mean,
-                    'Stim': stim_mean,
-                    'Response': response,
-                    'Pct_Change': pct_change,
-                    'Light_Code': light_code,
-                    'Plate_ID': well_base['Plate_ID'].iloc[0],
-                    'DIFF_DAY': well_base['DIFF_DAY'].mean()
-                })
-        
+
+                # 공통 metric 찾기
+                for metric in sorted(set(lc_base['Metric'].unique()) & set(lc_stim['Metric'].unique())):
+                    base_vals = lc_base[lc_base['Metric'] == metric]['Value']
+                    stim_vals = lc_stim[lc_stim['Metric'] == metric]['Value']
+
+                    if len(base_vals) == 0 or len(stim_vals) == 0:
+                        continue
+
+                    base_mean = base_vals.mean()
+                    stim_mean = stim_vals.mean()
+                    response = stim_mean - base_mean
+                    pct_change = (response / base_mean * 100) if base_mean != 0 else 0
+
+                    results.append({
+                        'Well': well,
+                        'Metric': metric,
+                        'Baseline': base_mean,
+                        'Stim': stim_mean,
+                        'Response': response,
+                        'Pct_Change': pct_change,
+                        'Light_Code': light_code,
+                        'Plate_ID': lc_base['Plate_ID'].iloc[0],
+                        'DIFF_DAY': lc_base['DIFF_DAY'].mean()
+                    })
+
         self.result_df = pd.DataFrame(results)
-        
+
         if not self.result_df.empty:
             csv_path = self.output_dir / 'light_response.csv'
             self.result_df.to_csv(csv_path, index=False)
             print(f'  ✓ Overall light response saved: {csv_path.name}')
+            print(f'  ✓ Analyzed {len(self.result_df)} light response records across {len(all_light_codes)} light codes')
     
     def _analyze_per_well(self):
         """Per-well 분석"""
