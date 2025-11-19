@@ -446,7 +446,7 @@ class BaseLightResponseVisualizer:
         }
 
     @staticmethod
-    def add_differentiation_phases(ax: plt.Axes, x_max: float, phase_type: str = 'day'):
+    def add_differentiation_phases(ax: plt.Axes, x_min: float, x_max: float, phase_type: str = 'day'):
         """
         Add visual background shading for differentiation phases
 
@@ -454,16 +454,18 @@ class BaseLightResponseVisualizer:
         -----------
         ax : plt.Axes
             Axis to add phases to
+        x_min : float
+            Minimum x value (day or week number)
         x_max : float
             Maximum x value (day or week number)
         phase_type : str
             Type of x-axis ('day' or 'week')
         """
-        # Get phase definitions
+        # Get phase definitions based on actual data range
         if phase_type == 'day':
-            phases = BaseLightResponseVisualizer._get_day_phases(x_max)
+            phases = BaseLightResponseVisualizer._get_day_phases(x_min, x_max)
         else:  # week
-            phases = BaseLightResponseVisualizer._get_week_phases(x_max)
+            phases = BaseLightResponseVisualizer._get_week_phases(x_min, x_max)
 
         # Add shaded regions and labels
         x_range = ax.get_xlim()
@@ -488,32 +490,79 @@ class BaseLightResponseVisualizer:
                             edgecolor='none', alpha=0.7))
 
     @staticmethod
-    def _get_day_phases(x_max: float) -> List[Tuple[float, float, str, str]]:
-        """Get phase definitions for daily view"""
+    def _get_day_phases(x_min: float, x_max: float) -> List[Tuple[float, float, str, str]]:
+        """Get phase definitions for daily view based on data range"""
         colors = PlotSettings.PHASE_COLORS
+        phases = []
 
-        if x_max <= 20:
-            return [
-                (0, PlotSettings.EARLY_PHASE_END, 'Early', colors['early']),
-                (PlotSettings.EARLY_PHASE_END, x_max, 'Mid-Late', colors['mid'])
-            ]
-        else:
-            return [
-                (0, PlotSettings.EARLY_PHASE_END, 'Early', colors['early']),
-                (PlotSettings.EARLY_PHASE_END, PlotSettings.MID_PHASE_END, 'Mid', colors['mid']),
-                (PlotSettings.MID_PHASE_END, x_max, 'Late', colors['late'])
-            ]
+        # Determine which phases to show based on data range
+        # Early phase: 0-7 days
+        if x_min < PlotSettings.EARLY_PHASE_END:
+            phase_start = max(x_min, 0)
+            phase_end = min(x_max, PlotSettings.EARLY_PHASE_END)
+            if phase_end > phase_start:
+                phases.append((phase_start, phase_end, 'Early', colors['early']))
+
+        # Mid phase: 7-14 days
+        if x_max > PlotSettings.EARLY_PHASE_END and x_min < PlotSettings.MID_PHASE_END:
+            phase_start = max(x_min, PlotSettings.EARLY_PHASE_END)
+            phase_end = min(x_max, PlotSettings.MID_PHASE_END)
+            if phase_end > phase_start:
+                phases.append((phase_start, phase_end, 'Mid', colors['mid']))
+
+        # Late phase: 14+ days
+        if x_max > PlotSettings.MID_PHASE_END:
+            phase_start = max(x_min, PlotSettings.MID_PHASE_END)
+            phase_end = x_max
+            if phase_end > phase_start:
+                phases.append((phase_start, phase_end, 'Late', colors['late']))
+
+        # If no specific phases, just create a single phase
+        if not phases:
+            phases.append((x_min, x_max, 'Data Range', colors['early']))
+
+        return phases
 
     @staticmethod
-    def _get_week_phases(x_max: float) -> List[Tuple[float, float, str, str]]:
-        """Get phase definitions for weekly view"""
+    def _get_week_phases(x_min: float, x_max: float) -> List[Tuple[float, float, str, str]]:
+        """Get phase definitions for weekly view based on data range"""
         colors = PlotSettings.PHASE_COLORS
-        mid_point = x_max / 2
+        mid_point = (x_min + x_max) / 2
 
         return [
-            (0, mid_point, 'Early', colors['early']),
+            (x_min, mid_point, 'Early', colors['early']),
             (mid_point, x_max, 'Late', colors['mid'])
         ]
+
+    @staticmethod
+    def optimize_x_limits(ax: plt.Axes, x_data: np.ndarray, margin: float = 0.05):
+        """
+        Optimize X-axis limits based on data range
+
+        Parameters:
+        -----------
+        ax : plt.Axes
+            Axis to optimize
+        x_data : np.ndarray
+            X data values
+        margin : float
+            Margin as fraction of data range (default 5%)
+        """
+        # Remove NaN values
+        x_clean = x_data[~np.isnan(x_data)]
+
+        if len(x_clean) == 0:
+            return
+
+        x_min, x_max = x_clean.min(), x_clean.max()
+        x_range = x_max - x_min
+
+        # Add margin
+        if x_range > 0:
+            ax.set_xlim(x_min - margin * x_range, x_max + margin * x_range)
+        else:
+            # If all values are the same, add fixed margin
+            ax.set_xlim(x_min - 1, x_max + 1)
 
     @staticmethod
     def add_trend_line(ax: plt.Axes, x_data: np.ndarray, y_data: np.ndarray,

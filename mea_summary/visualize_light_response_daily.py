@@ -124,13 +124,15 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
             color=color_stim, label='Stim Trend'
         )
 
-        # Optimize Y-axis limits after plotting
+        # Optimize X and Y axis limits after plotting
         all_y_data = np.concatenate([grouped_baseline['mean'].values, grouped_stim['mean'].values])
         self.optimize_y_limits(ax, all_y_data)
+        self.optimize_x_limits(ax, grouped_baseline['DIFF_DAY'].values)
 
-        # Add differentiation phases (after Y-axis is set)
+        # Add differentiation phases (after axis limits are set)
+        x_min = grouped_baseline['DIFF_DAY'].min()
         x_max = grouped_baseline['DIFF_DAY'].max()
-        self.add_differentiation_phases(ax, x_max, phase_type='day')
+        self.add_differentiation_phases(ax, x_min, x_max, phase_type='day')
 
         # Add statistics annotation for baseline (top left) and stim (top right)
         if baseline_stats:
@@ -233,12 +235,14 @@ class LightResponseVisualizer(BaseLightResponseVisualizer):
             color='darkred', label='Response Trend'
         )
 
-        # Optimize Y-axis limits after plotting
+        # Optimize X and Y axis limits after plotting
         self.optimize_y_limits(ax, grouped['mean'].values)
+        self.optimize_x_limits(ax, grouped['DIFF_DAY'].values)
 
-        # Add differentiation phases (after Y-axis is set)
+        # Add differentiation phases (after axis limits are set)
+        x_min = grouped['DIFF_DAY'].min()
         x_max = grouped['DIFF_DAY'].max()
-        self.add_differentiation_phases(ax, x_max, phase_type='day')
+        self.add_differentiation_phases(ax, x_min, x_max, phase_type='day')
 
         # Add statistics annotation
         if response_stats:
