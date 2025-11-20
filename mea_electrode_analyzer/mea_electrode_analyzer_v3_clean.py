@@ -413,11 +413,11 @@ class ElectrodeVisualizer:
 
         funcs = [
             # Basic visualizations
-            self.plot_selection_overview,
+            self.plot_electrode_selection_overview,
             self.plot_electrode_heatmap,
             self.plot_electrode_distribution,
             self.plot_spike_comparison,
-            self.plot_spatial_distribution,
+            self.plot_electrode_spatial_map,
             self.plot_metric_completeness,
             # Light_code specific visualizations
             self.plot_light_code_comprehensive_analysis,
@@ -436,7 +436,7 @@ class ElectrodeVisualizer:
 
         print("  ✓ All visualizations complete")
 
-    def plot_selection_overview(self):
+    def plot_electrode_selection_overview(self):
         """선택 개요"""
         if self.selected_stats is None or self.selected_stats.empty:
             return
@@ -499,58 +499,7 @@ class ElectrodeVisualizer:
                    dpi=300, bbox_inches='tight')
         plt.close(fig)
 
-    def plot_light_code_analysis(self):
-        """Light_code별 분석"""
-        if self.df_selected.empty or 'LIGHT_CODE' not in self.df_selected.columns:
-            return
-
-        stim_data = self.df_selected[self.df_selected['BASE_STIM'] == 'STIM']
-        key_metrics = ['number_of_spikes', 'mean_firing_rate_hz', 'burst_frequency_hz']
-        available = [m for m in key_metrics if m in stim_data['Metric'].unique()]
-
-        if not available:
-            return
-
-        n_metrics = len(available)
-        fig, axes = plt.subplots(1, n_metrics, figsize=(7*n_metrics, 6))
-        if n_metrics == 1:
-            axes = [axes]
-
-        for idx, metric in enumerate(available):
-            ax = axes[idx]
-            metric_data = stim_data[stim_data['Metric'] == metric]
-
-            summary = metric_data.groupby('LIGHT_CODE')['Value'].agg(
-                ['mean', 'std', 'count']).reset_index()
-            summary['sem'] = summary['std'] / np.sqrt(summary['count'])
-            summary = summary.sort_values('LIGHT_CODE')
-
-            x_pos = np.arange(len(summary))
-            colors_list = plt.cm.Set3(np.linspace(0, 1, len(summary)))
-
-            bars = ax.bar(x_pos, summary['mean'], yerr=summary['sem'],
-                         capsize=5, alpha=0.8, edgecolor='black',
-                         color=colors_list)
-
-            ax.set_xticks(x_pos)
-            ax.set_xticklabels(summary['LIGHT_CODE'], rotation=45, ha='right')
-            ax.set_xlabel('Light Code')
-            ax.set_ylabel('Value (mean ± SEM)')
-            ax.set_title(metric.replace('_', ' ').title())
-            ax.grid(axis='y', alpha=0.3)
-
-            # Value labels
-            for i, (m, s) in enumerate(zip(summary['mean'], summary['sem'])):
-                ax.text(i, m + s, f'{m:.1f}', ha='center', va='bottom', fontsize=8)
-
-        plt.suptitle('Key Metrics by Light Code (STIM)',
-                    fontweight='bold', fontsize=14)
-        plt.tight_layout()
-        plt.savefig(self.output_dir / 'light_code_analysis.png',
-                   dpi=300, bbox_inches='tight')
-        plt.close(fig)
-
-    def plot_metrics_heatmap(self):
+    def plot_light_code_heatmap(self):
         """Metric 히트맵 (Light_code × Metric)"""
         if self.df_selected.empty or 'LIGHT_CODE' not in self.df_selected.columns:
             return
@@ -592,7 +541,7 @@ class ElectrodeVisualizer:
                    dpi=300, bbox_inches='tight')
         plt.close(fig)
 
-    def plot_spatial_distribution(self):
+    def plot_electrode_spatial_map(self):
         """24-well 공간 분포"""
         if self.selected_stats is None or self.selected_stats.empty:
             return
