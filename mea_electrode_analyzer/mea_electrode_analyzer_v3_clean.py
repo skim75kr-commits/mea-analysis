@@ -359,16 +359,22 @@ def filter_electrodes(
     merged = merged.dropna(subset=["spikes_base", "spikes_stim"])
 
     # (3) Calculate metrics
-    eps = 1e-6
+    # 개선: eps를 1e-3으로 상향하여 극단적 ratio 방지
+    eps = 1e-3
     merged["abs_diff"] = (merged["spikes_stim"] - merged["spikes_base"]).abs()
     merged["pct_change"] = ((merged["spikes_stim"] - merged["spikes_base"]) /
                            (merged["spikes_base"] + eps) * 100)
     merged["fold_change"] = (merged["spikes_stim"] + eps) / (merged["spikes_base"] + eps)
+    # log2 fold change 추가 (대칭적 표현)
+    merged["log2_fold_change"] = np.log2(merged["fold_change"])
 
     # (4) Filter conditions
     cond_metrics = merged["metric_ratio"] >= config.min_metric_ratio
     cond_pct = merged["pct_change"].abs() >= config.min_pct_change
-    cond_fc = merged["fold_change"] >= config.min_fold_change
+    # 개선: 양방향 fold change 필터 (증가 또는 감소 모두 체크)
+    cond_fc_increase = merged["fold_change"] >= config.min_fold_change
+    cond_fc_decrease = merged["fold_change"] <= (1.0 / config.min_fold_change)
+    cond_fc = cond_fc_increase | cond_fc_decrease
 
     merged["selected"] = cond_metrics & (cond_pct | cond_fc)
     selected_stats = merged[merged["selected"]].copy()
@@ -1310,64 +1316,84 @@ class ElectrodeResponseScorer:
 
         scores = []
 
+        # 개선: 더 안정적인 eps 값 (극단적 ratio 방지)
+        eps = 1e-3
+        min_base_threshold = 0.1  # BASE 값 최소 threshold
+
         # Electrode별로 처리
         for electrode_id in self.df_all['Electrode_ID'].unique():
             electrode_data = self.df_all[self.df_all['Electrode_ID'] == electrode_id]
 
-            # Well, LIGHT_CODE 정보
+            # Well 정보
             well = electrode_data['Well'].iloc[0]
-            light_code = electrode_data['LIGHT_CODE'].iloc[0] if 'LIGHT_CODE' in electrode_data.columns else 'UNKNOWN'
 
-            metric_ratios = {}
-            metric_base_vals = {}
-            metric_stim_vals = {}
+            # 개선: 모든 LIGHT_CODE에 대해 처리 (첫 번째만이 아닌)
+            light_codes = electrode_data['LIGHT_CODE'].unique() if 'LIGHT_CODE' in electrode_data.columns else ['UNKNOWN']
 
-            # 각 metric별 BASE/STIM ratio 계산
-            for metric in available_metrics:
-                metric_data = electrode_data[electrode_data['Metric'] == metric]
+            for light_code in light_codes:
+                if 'LIGHT_CODE' in electrode_data.columns:
+                    lc_data = electrode_data[electrode_data['LIGHT_CODE'] == light_code]
+                else:
+                    lc_data = electrode_data
 
-                base_data = metric_data[metric_data['BASE_STIM'] == 'BASE']
-                stim_data = metric_data[metric_data['BASE_STIM'] == 'STIM']
+                metric_ratios = {}
+                metric_base_vals = {}
+                metric_stim_vals = {}
 
-                if not base_data.empty and not stim_data.empty:
-                    base_val = base_data['Value'].mean()
-                    stim_val = stim_data['Value'].mean()
-
-                    # Ratio 계산 (STIM / BASE)
-                    eps = 1e-6
-                    ratio = (stim_val + eps) / (base_val + eps)
-
-                    metric_ratios[metric] = ratio
-                    metric_base_vals[metric] = base_val
-                    metric_stim_vals[metric] = stim_val
-
-            # Composite score 계산 (가중 평균)
-            if metric_ratios:
-                composite_score = 0
-                total_weight = 0
-
-                for metric, ratio in metric_ratios.items():
-                    weight = metrics_weights.get(metric, 0)
-                    composite_score += ratio * weight
-                    total_weight += weight
-
-                if total_weight > 0:
-                    composite_score /= total_weight
-
-                score_entry = {
-                    'Electrode_ID': electrode_id,
-                    'Well': well,
-                    'LIGHT_CODE': light_code,
-                    'Response_Score': composite_score,
-                }
-
-                # 각 metric의 ratio 추가
+                # 각 metric별 BASE/STIM ratio 계산
                 for metric in available_metrics:
-                    score_entry[f'{metric}_ratio'] = metric_ratios.get(metric, np.nan)
-                    score_entry[f'{metric}_base'] = metric_base_vals.get(metric, np.nan)
-                    score_entry[f'{metric}_stim'] = metric_stim_vals.get(metric, np.nan)
+                    metric_data = lc_data[lc_data['Metric'] == metric]
 
-                scores.append(score_entry)
+                    base_data = metric_data[metric_data['BASE_STIM'] == 'BASE']
+                    stim_data = metric_data[metric_data['BASE_STIM'] == 'STIM']
+
+                    if not base_data.empty and not stim_data.empty:
+                        base_val = base_data['Value'].mean()
+                        stim_val = stim_data['Value'].mean()
+
+                        # 개선: BASE 값 검증 - 너무 작으면 불안정한 ratio 방지
+                        if base_val >= min_base_threshold:
+                            ratio = (stim_val + eps) / (base_val + eps)
+                            # 개선: ratio를 합리적인 범위로 제한 (0.01 ~ 100)
+                            ratio = np.clip(ratio, 0.01, 100)
+                        else:
+                            # BASE가 작으면 STIM 값 기반으로 판단
+                            if stim_val > min_base_threshold:
+                                ratio = stim_val / min_base_threshold  # 증가로 간주
+                            else:
+                                ratio = 1.0  # 둘 다 작으면 중립
+
+                        metric_ratios[metric] = ratio
+                        metric_base_vals[metric] = base_val
+                        metric_stim_vals[metric] = stim_val
+
+                # Composite score 계산 (가중 평균)
+                if metric_ratios:
+                    composite_score = 0
+                    total_weight = 0
+
+                    for metric, ratio in metric_ratios.items():
+                        weight = metrics_weights.get(metric, 0)
+                        composite_score += ratio * weight
+                        total_weight += weight
+
+                    if total_weight > 0:
+                        composite_score /= total_weight
+
+                    score_entry = {
+                        'Electrode_ID': electrode_id,
+                        'Well': well,
+                        'LIGHT_CODE': light_code,
+                        'Response_Score': composite_score,
+                    }
+
+                    # 각 metric의 ratio 추가
+                    for metric in available_metrics:
+                        score_entry[f'{metric}_ratio'] = metric_ratios.get(metric, np.nan)
+                        score_entry[f'{metric}_base'] = metric_base_vals.get(metric, np.nan)
+                        score_entry[f'{metric}_stim'] = metric_stim_vals.get(metric, np.nan)
+
+                    scores.append(score_entry)
 
         self.scores_df = pd.DataFrame(scores)
 

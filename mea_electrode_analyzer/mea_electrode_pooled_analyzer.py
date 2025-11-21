@@ -101,11 +101,13 @@ COLORS = {
 # =============================================================================
 
 class ElectrodeDataPooler:
-    """Top score electrode 데이터 pooling"""
+    """Top score electrode 데이터 pooling (Score-weighted 옵션 지원)"""
 
     def __init__(self, electrode_data: pd.DataFrame, scores_df: pd.DataFrame):
         self.electrode_data = electrode_data
         self.scores_df = scores_df
+        # Score를 Electrode_ID로 매핑
+        self.score_map = dict(zip(scores_df['Electrode_ID'], scores_df['Response_Score']))
 
     def get_top_electrodes(self, top_n_per_well: int = 3,
                            top_n_overall: Optional[int] = None) -> List[str]:
@@ -136,7 +138,8 @@ class ElectrodeDataPooler:
         return top_electrodes
 
     @timer
-    def pool_electrode_data(self, electrode_ids: List[str]) -> pd.DataFrame:
+    def pool_electrode_data(self, electrode_ids: List[str],
+                            use_weighted: bool = True) -> pd.DataFrame:
         """
         선택된 electrode의 데이터를 Well 단위로 pooling
 
@@ -144,6 +147,8 @@ class ElectrodeDataPooler:
         -----------
         electrode_ids : List[str]
             Electrode_ID 목록
+        use_weighted : bool
+            True: Score 기반 가중 평균, False: 단순 평균
 
         Returns:
         --------
@@ -151,6 +156,7 @@ class ElectrodeDataPooler:
             Well 단위로 pooling된 데이터 (mea_auto_analyzer_v32 형식)
         """
         print(f"\n[POOLER] Pooling data from {len(electrode_ids)} electrodes...")
+        print(f"  ✓ Mode: {'Score-weighted average' if use_weighted else 'Simple average'}")
 
         # 선택된 electrode 데이터 필터링
         filtered = self.electrode_data[
@@ -162,7 +168,10 @@ class ElectrodeDataPooler:
         if filtered.empty:
             return pd.DataFrame()
 
-        # Well 단위로 집계 (평균)
+        # Score 추가
+        filtered['Score'] = filtered['Electrode_ID'].map(self.score_map).fillna(1.0)
+
+        # Well 단위로 집계
         group_cols = ['Well', 'Metric', 'BASE_STIM']
 
         # 추가 그룹 컬럼 (있는 경우)
@@ -170,22 +179,41 @@ class ElectrodeDataPooler:
             if col in filtered.columns:
                 group_cols.append(col)
 
-        pooled = filtered.groupby(group_cols).agg({
-            'Value': ['mean', 'std', 'count']
-        }).reset_index()
+        if use_weighted:
+            # Score 기반 가중 평균
+            def weighted_agg(group):
+                weights = group['Score'].values
+                values = group['Value'].values
+                weighted_mean = np.average(values, weights=weights)
+                # Weighted std
+                weighted_var = np.average((values - weighted_mean)**2, weights=weights)
+                weighted_std = np.sqrt(weighted_var)
+                return pd.Series({
+                    'Value': weighted_mean,
+                    'Value_std': weighted_std,
+                    'n_electrodes': len(values),
+                    'total_weight': weights.sum()
+                })
 
-        # 컬럼명 평탄화
-        pooled.columns = [
-            '_'.join(col).strip('_') if isinstance(col, tuple) else col
-            for col in pooled.columns
-        ]
+            pooled = filtered.groupby(group_cols).apply(weighted_agg).reset_index()
+        else:
+            # 단순 평균
+            pooled = filtered.groupby(group_cols).agg({
+                'Value': ['mean', 'std', 'count']
+            }).reset_index()
 
-        # 컬럼명 정리
-        pooled = pooled.rename(columns={
-            'Value_mean': 'Value',
-            'Value_std': 'Value_std',
-            'Value_count': 'n_electrodes'
-        })
+            # 컬럼명 평탄화
+            pooled.columns = [
+                '_'.join(col).strip('_') if isinstance(col, tuple) else col
+                for col in pooled.columns
+            ]
+
+            # 컬럼명 정리
+            pooled = pooled.rename(columns={
+                'Value_mean': 'Value',
+                'Value_std': 'Value_std',
+                'Value_count': 'n_electrodes'
+            })
 
         print(f"  ✓ Pooled: {len(pooled)} rows, {pooled['Well'].nunique()} wells")
 
@@ -315,8 +343,9 @@ class LightResponseAnalyzerPooled:
             print('  ⚠ Missing BASE or STIM data')
             return self
 
-        # Response 계산
+        # Response 계산 (통계 검정 포함)
         responses = []
+        eps = 1e-3  # 개선: 안정적인 eps 값
 
         for well in self.df['Well'].unique():
             for metric in self.df['Metric'].unique():
@@ -325,20 +354,54 @@ class LightResponseAnalyzerPooled:
 
                 for light_code in light_codes:
                     if 'LIGHT_CODE' in self.df.columns:
-                        base_val = base[(base['Well'] == well) &
-                                       (base['Metric'] == metric) &
-                                       (base['LIGHT_CODE'] == light_code)]['Value'].mean()
-                        stim_val = stim[(stim['Well'] == well) &
-                                       (stim['Metric'] == metric) &
-                                       (stim['LIGHT_CODE'] == light_code)]['Value'].mean()
+                        base_mask = ((base['Well'] == well) &
+                                    (base['Metric'] == metric) &
+                                    (base['LIGHT_CODE'] == light_code))
+                        stim_mask = ((stim['Well'] == well) &
+                                    (stim['Metric'] == metric) &
+                                    (stim['LIGHT_CODE'] == light_code))
                     else:
-                        base_val = base[(base['Well'] == well) & (base['Metric'] == metric)]['Value'].mean()
-                        stim_val = stim[(stim['Well'] == well) & (stim['Metric'] == metric)]['Value'].mean()
+                        base_mask = (base['Well'] == well) & (base['Metric'] == metric)
+                        stim_mask = (stim['Well'] == well) & (stim['Metric'] == metric)
+
+                    base_values = base[base_mask]['Value'].dropna()
+                    stim_values = stim[stim_mask]['Value'].dropna()
+
+                    base_val = base_values.mean() if len(base_values) > 0 else np.nan
+                    stim_val = stim_values.mean() if len(stim_values) > 0 else np.nan
 
                     if pd.notna(base_val) and pd.notna(stim_val):
                         response = stim_val - base_val
-                        pct_change = (response / (base_val + 1e-6)) * 100
-                        fold_change = (stim_val + 1e-6) / (base_val + 1e-6)
+                        pct_change = (response / (base_val + eps)) * 100
+                        fold_change = (stim_val + eps) / (base_val + eps)
+                        # 개선: log2 fold change (대칭적 표현)
+                        log2_fc = np.log2(fold_change)
+
+                        # 통계 검정 (t-test, Mann-Whitney)
+                        p_ttest = np.nan
+                        p_mannwhitney = np.nan
+                        significance = ''
+
+                        if len(base_values) >= 2 and len(stim_values) >= 2:
+                            try:
+                                _, p_ttest = stats.ttest_ind(base_values, stim_values)
+                            except:
+                                pass
+                            try:
+                                _, p_mannwhitney = stats.mannwhitneyu(base_values, stim_values,
+                                                                       alternative='two-sided')
+                            except:
+                                pass
+
+                            # 유의성 표시
+                            min_p = min(p_ttest if pd.notna(p_ttest) else 1,
+                                       p_mannwhitney if pd.notna(p_mannwhitney) else 1)
+                            if min_p < 0.001:
+                                significance = '***'
+                            elif min_p < 0.01:
+                                significance = '**'
+                            elif min_p < 0.05:
+                                significance = '*'
 
                         responses.append({
                             'Well': well,
@@ -348,7 +411,13 @@ class LightResponseAnalyzerPooled:
                             'STIM': stim_val,
                             'Response': response,
                             'Pct_Change': pct_change,
-                            'Fold_Change': fold_change
+                            'Fold_Change': fold_change,
+                            'Log2_FC': log2_fc,
+                            'p_ttest': p_ttest,
+                            'p_mannwhitney': p_mannwhitney,
+                            'Significance': significance,
+                            'n_base': len(base_values),
+                            'n_stim': len(stim_values)
                         })
 
         self.response_df = pd.DataFrame(responses)
@@ -368,14 +437,18 @@ class LightResponseAnalyzerPooled:
                     lc_data = self.response_df[self.response_df['LIGHT_CODE'] == lc]
                     lc_data.to_csv(self.per_color_dir / f'light_response_{lc}.csv', index=False)
 
-            # Summary by light code
+            # Summary by light code (통계 검정 결과 포함)
             if 'LIGHT_CODE' in self.response_df.columns:
                 self.summary = self.response_df.groupby(['LIGHT_CODE', 'Metric']).agg({
                     'Response': ['mean', 'std', 'count'],
-                    'Fold_Change': ['mean', 'std']
+                    'Fold_Change': ['mean', 'std'],
+                    'Log2_FC': ['mean', 'std'],
+                    'p_ttest': 'mean',
+                    'p_mannwhitney': 'mean'
                 }).reset_index()
                 self.summary.columns = ['LIGHT_CODE', 'Metric', 'Response_Mean', 'Response_Std',
-                                        'Response_Count', 'FoldChange_Mean', 'FoldChange_Std']
+                                        'Response_Count', 'FoldChange_Mean', 'FoldChange_Std',
+                                        'Log2_FC_Mean', 'Log2_FC_Std', 'p_ttest_avg', 'p_mannwhitney_avg']
                 self.summary.to_csv(self.output_dir / 'light_response_summary.csv', index=False)
 
         print(f"  ✓ Analyzed {len(responses)} responses")
