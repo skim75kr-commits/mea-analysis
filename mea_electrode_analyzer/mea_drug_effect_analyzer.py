@@ -123,10 +123,16 @@ class LightResponseCalculator:
     - Percent Change: LR = (STIM - BASE) / BASE * 100
     """
 
-    def __init__(self, df: pd.DataFrame, electrode_ids: List[str]):
+    def __init__(self, df: pd.DataFrame, electrode_ids: List[str],
+                 score_map: Optional[Dict[str, float]] = None):
         self.df = df
         self.electrode_ids = electrode_ids
-        self.eps = 1e-6  # Division by zero 방지
+        # 개선: eps를 1e-3으로 상향하여 극단적 ratio 방지
+        self.eps = 1e-3
+        # 개선: BASE 값 최소 threshold
+        self.min_base_threshold = 0.1
+        # Score-weighted 계산을 위한 score map
+        self.score_map = score_map or {}
 
     def calculate(self,
                   condition_col: str = 'EXP_TYPE',
@@ -209,15 +215,35 @@ class LightResponseCalculator:
             # Absolute difference
             merged['LR_Absolute'] = merged['STIM_Value'] - merged['BASE_Value']
 
-            # Ratio (with epsilon for stability)
-            merged['LR_Ratio'] = (merged['STIM_Value'] + self.eps) / (merged['BASE_Value'] + self.eps)
+            # 개선: Ratio 계산 시 BASE 값 검증 및 clipping
+            def calc_stable_ratio(row):
+                base_val = row['BASE_Value']
+                stim_val = row['STIM_Value']
+                if base_val >= self.min_base_threshold:
+                    ratio = (stim_val + self.eps) / (base_val + self.eps)
+                else:
+                    # BASE가 작으면 STIM 값 기반으로 판단
+                    if stim_val > self.min_base_threshold:
+                        ratio = stim_val / self.min_base_threshold
+                    else:
+                        ratio = 1.0
+                # Ratio를 합리적인 범위로 제한 (0.01 ~ 100)
+                return np.clip(ratio, 0.01, 100)
 
-            # Percent change
+            merged['LR_Ratio'] = merged.apply(calc_stable_ratio, axis=1)
+
+            # Percent change (with stable calculation)
             merged['LR_PctChange'] = ((merged['STIM_Value'] - merged['BASE_Value']) /
-                                       (merged['BASE_Value'] + self.eps) * 100)
+                                       (merged['BASE_Value'].clip(lower=self.min_base_threshold)) * 100)
+            # Clip percent change to reasonable range
+            merged['LR_PctChange'] = merged['LR_PctChange'].clip(-1000, 1000)
 
             # Log2 Fold Change (symmetric around 0)
             merged['LR_Log2FC'] = np.log2(merged['LR_Ratio'])
+
+            # 개선: Score 추가 (available인 경우)
+            if self.score_map:
+                merged['Score'] = merged['Electrode_ID'].map(self.score_map).fillna(1.0)
 
             results.append(merged)
 
@@ -331,9 +357,20 @@ class DrugEffectCalculator:
         )
 
         # 6. Baseline change (drug effect on spontaneous activity)
+        # 개선: eps를 1e-3으로 통일, 안정적인 계산
+        eps = 1e-3
+        min_threshold = 0.1
         merged['Baseline_Change'] = merged['DRUG_BASE'] - merged['CTRL_BASE']
         merged['Baseline_Change_Pct'] = ((merged['DRUG_BASE'] - merged['CTRL_BASE']) /
-                                          (merged['CTRL_BASE'] + 1e-6) * 100)
+                                          (merged['CTRL_BASE'].clip(lower=min_threshold)) * 100)
+        # Clip to reasonable range
+        merged['Baseline_Change_Pct'] = merged['Baseline_Change_Pct'].clip(-1000, 1000)
+
+        # 7. Drug effect magnitude (absolute value for ranking)
+        merged['DrugEffect_Magnitude'] = merged['DrugEffect_LR_Abs'].abs()
+
+        # 8. Effect significance threshold (>20% change considered significant)
+        merged['Is_Significant_Effect'] = merged['DrugEffect_Magnitude'] > (merged['CTRL_LR_Abs'].abs() * 0.2)
 
         self.drug_effect = merged
 
@@ -1049,7 +1086,51 @@ class DrugEffectExcelExporter:
                 direction_summary = self._create_direction_summary()
                 direction_summary.to_excel(writer, sheet_name='Direction_Summary', index=False)
 
+            # Sheet 9: Per Well Summary (개선: Well별 요약 추가)
+            if not self.drug_effect.empty:
+                per_well_summary = self._create_per_well_summary()
+                per_well_summary.to_excel(writer, sheet_name='Per_Well_Summary', index=False)
+
+        # 개선: Per-well CSV 파일 출력
+        self._save_per_well_csv()
+
         print(f"  ✓ Saved: {self.output_path.name}")
+
+    def _save_per_well_csv(self):
+        """Per-well CSV 파일 저장"""
+        if self.drug_effect.empty:
+            return
+
+        per_well_dir = self.output_path.parent / 'per_well'
+        per_well_dir.mkdir(parents=True, exist_ok=True)
+
+        for well in self.drug_effect['Well'].unique():
+            well_data = self.drug_effect[self.drug_effect['Well'] == well]
+            well_data.to_csv(per_well_dir / f'drug_effect_{well}.csv', index=False)
+
+        print(f"  ✓ Per-well CSV: {per_well_dir}")
+
+    def _create_per_well_summary(self) -> pd.DataFrame:
+        """Well별 요약 테이블"""
+        results = []
+
+        for well in self.drug_effect['Well'].unique():
+            well_df = self.drug_effect[self.drug_effect['Well'] == well]
+
+            result = {
+                'Well': well,
+                'N_Electrodes': well_df['Electrode_ID'].nunique(),
+                'N_Enhanced': (well_df['DrugEffect_Direction'] == 'Enhanced').sum(),
+                'N_Suppressed': (well_df['DrugEffect_Direction'] == 'Suppressed').sum(),
+                'Pct_Enhanced': (well_df['DrugEffect_Direction'] == 'Enhanced').mean() * 100,
+                'Mean_DrugEffect': well_df['DrugEffect_LR_Abs'].mean(),
+                'Mean_Baseline_Change': well_df['Baseline_Change'].mean(),
+                'Mean_CTRL_LR': well_df['CTRL_LR_Abs'].mean(),
+                'Mean_DRUG_LR': well_df['DRUG_LR_Abs'].mean(),
+            }
+            results.append(result)
+
+        return pd.DataFrame(results).sort_values('Well')
 
     def _create_summary(self) -> pd.DataFrame:
         """요약 테이블 생성"""
@@ -1583,7 +1664,14 @@ class DrugEffectAnalyzer:
 
     def _calculate_light_responses(self):
         """Light Response 계산 (CONTROL 및 각 DRUG)"""
-        lr_calc = LightResponseCalculator(self.electrode_data, self.selected_electrodes)
+        # 개선: Score map 생성하여 LightResponseCalculator에 전달
+        score_map = dict(zip(self.scores_df['Electrode_ID'], self.scores_df['Response_Score']))
+
+        lr_calc = LightResponseCalculator(
+            self.electrode_data,
+            self.selected_electrodes,
+            score_map=score_map  # Score-weighted 계산 지원
+        )
 
         # CONTROL Light Response
         self.control_lr = lr_calc.calculate(
