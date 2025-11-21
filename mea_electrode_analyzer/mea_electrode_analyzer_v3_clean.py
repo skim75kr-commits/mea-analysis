@@ -383,7 +383,7 @@ def filter_electrodes(
     else:
         df_flagged = df.merge(selected_stats[key_cols + ["selected"]],
                              on=key_cols, how="left")
-        df_filtered = df_flagged[df_flagged["selected"]].drop(columns=["selected"])
+        df_filtered = df_flagged[df_flagged["selected"].fillna(False)].drop(columns=["selected"])
 
     return selected_stats, df_filtered
 
