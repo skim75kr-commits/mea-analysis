@@ -283,12 +283,19 @@ class SpontaneousAnalyzerPooled:
 # =============================================================================
 
 class LightResponseAnalyzerPooled:
-    """Light Response 분석"""
+    """Light Response 분석 - Per Well, Per Color 출력"""
 
     def __init__(self, df: pd.DataFrame, output_dir: Path):
         self.df = df
         self.output_dir = Path(output_dir) / '02_light_response'
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Per well, per color 폴더 생성
+        self.per_well_dir = self.output_dir / 'per_well'
+        self.per_color_dir = self.output_dir / 'per_color'
+        self.per_well_dir.mkdir(parents=True, exist_ok=True)
+        self.per_color_dir.mkdir(parents=True, exist_ok=True)
+
         self.response_df = None
         self.summary = None
 
@@ -313,98 +320,177 @@ class LightResponseAnalyzerPooled:
 
         for well in self.df['Well'].unique():
             for metric in self.df['Metric'].unique():
-                base_val = base[(base['Well'] == well) & (base['Metric'] == metric)]['Value'].mean()
-                stim_val = stim[(stim['Well'] == well) & (stim['Metric'] == metric)]['Value'].mean()
+                # Light code별로 계산
+                light_codes = self.df[self.df['Well'] == well]['LIGHT_CODE'].unique() if 'LIGHT_CODE' in self.df.columns else ['UNKNOWN']
 
-                if pd.notna(base_val) and pd.notna(stim_val):
-                    response = stim_val - base_val
-                    pct_change = (response / (base_val + 1e-6)) * 100
-                    fold_change = (stim_val + 1e-6) / (base_val + 1e-6)
+                for light_code in light_codes:
+                    if 'LIGHT_CODE' in self.df.columns:
+                        base_val = base[(base['Well'] == well) &
+                                       (base['Metric'] == metric) &
+                                       (base['LIGHT_CODE'] == light_code)]['Value'].mean()
+                        stim_val = stim[(stim['Well'] == well) &
+                                       (stim['Metric'] == metric) &
+                                       (stim['LIGHT_CODE'] == light_code)]['Value'].mean()
+                    else:
+                        base_val = base[(base['Well'] == well) & (base['Metric'] == metric)]['Value'].mean()
+                        stim_val = stim[(stim['Well'] == well) & (stim['Metric'] == metric)]['Value'].mean()
 
-                    light_code = self.df[self.df['Well'] == well]['LIGHT_CODE'].iloc[0] if 'LIGHT_CODE' in self.df.columns else 'UNKNOWN'
+                    if pd.notna(base_val) and pd.notna(stim_val):
+                        response = stim_val - base_val
+                        pct_change = (response / (base_val + 1e-6)) * 100
+                        fold_change = (stim_val + 1e-6) / (base_val + 1e-6)
 
-                    responses.append({
-                        'Well': well,
-                        'Metric': metric,
-                        'LIGHT_CODE': light_code,
-                        'BASE': base_val,
-                        'STIM': stim_val,
-                        'Response': response,
-                        'Pct_Change': pct_change,
-                        'Fold_Change': fold_change
-                    })
+                        responses.append({
+                            'Well': well,
+                            'Metric': metric,
+                            'LIGHT_CODE': light_code,
+                            'BASE': base_val,
+                            'STIM': stim_val,
+                            'Response': response,
+                            'Pct_Change': pct_change,
+                            'Fold_Change': fold_change
+                        })
 
         self.response_df = pd.DataFrame(responses)
 
         if not self.response_df.empty:
+            # 전체 저장
             self.response_df.to_csv(self.output_dir / 'light_response.csv', index=False)
+
+            # Per well CSV
+            for well in self.response_df['Well'].unique():
+                well_data = self.response_df[self.response_df['Well'] == well]
+                well_data.to_csv(self.per_well_dir / f'light_response_{well}.csv', index=False)
+
+            # Per color CSV
+            if 'LIGHT_CODE' in self.response_df.columns:
+                for lc in self.response_df['LIGHT_CODE'].unique():
+                    lc_data = self.response_df[self.response_df['LIGHT_CODE'] == lc]
+                    lc_data.to_csv(self.per_color_dir / f'light_response_{lc}.csv', index=False)
 
             # Summary by light code
             if 'LIGHT_CODE' in self.response_df.columns:
                 self.summary = self.response_df.groupby(['LIGHT_CODE', 'Metric']).agg({
-                    'Response': ['mean', 'std'],
+                    'Response': ['mean', 'std', 'count'],
                     'Fold_Change': ['mean', 'std']
                 }).reset_index()
                 self.summary.columns = ['LIGHT_CODE', 'Metric', 'Response_Mean', 'Response_Std',
-                                        'FoldChange_Mean', 'FoldChange_Std']
+                                        'Response_Count', 'FoldChange_Mean', 'FoldChange_Std']
                 self.summary.to_csv(self.output_dir / 'light_response_summary.csv', index=False)
 
         print(f"  ✓ Analyzed {len(responses)} responses")
+        print(f"  ✓ Per well: {self.per_well_dir}")
+        print(f"  ✓ Per color: {self.per_color_dir}")
         return self
 
     @timer
     def visualize(self):
-        """시각화"""
+        """시각화 - Per Well, Per Color"""
         if self.response_df is None or self.response_df.empty:
             return self
 
-        # 1. BASE vs STIM comparison
         key_metrics = ['number_of_spikes', 'mean_firing_rate_hz', 'burst_frequency_hz']
         available = [m for m in key_metrics if m in self.response_df['Metric'].unique()]
 
-        if available:
+        if not available:
+            return self
+
+        # ========== Per Well Visualizations ==========
+        for well in self.response_df['Well'].unique():
+            well_data = self.response_df[self.response_df['Well'] == well]
+
             fig, axes = plt.subplots(1, len(available), figsize=(6*len(available), 6))
             if len(available) == 1:
                 axes = [axes]
 
             for idx, metric in enumerate(available):
                 ax = axes[idx]
-                metric_data = self.response_df[self.response_df['Metric'] == metric]
+                metric_data = well_data[well_data['Metric'] == metric]
+
+                if metric_data.empty:
+                    ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
+                    continue
 
                 if 'LIGHT_CODE' in metric_data.columns:
                     light_codes = sorted(metric_data['LIGHT_CODE'].unique())
+                    x_pos = np.arange(len(light_codes))
+                    width = 0.35
 
-                    for i, lc in enumerate(light_codes):
-                        lc_data = metric_data[metric_data['LIGHT_CODE'] == lc]
-                        x = [i - 0.2, i + 0.2]
-                        y = [lc_data['BASE'].mean(), lc_data['STIM'].mean()]
+                    base_vals = [metric_data[metric_data['LIGHT_CODE'] == lc]['BASE'].mean() for lc in light_codes]
+                    stim_vals = [metric_data[metric_data['LIGHT_CODE'] == lc]['STIM'].mean() for lc in light_codes]
 
-                        ax.bar(x, y, width=0.35, alpha=0.8,
-                              color=[COLORS['base'], COLORS['stim']],
-                              edgecolor='black')
+                    ax.bar(x_pos - width/2, base_vals, width, label='BASE',
+                          alpha=0.8, edgecolor='black', color=COLORS['base'])
+                    ax.bar(x_pos + width/2, stim_vals, width, label='STIM',
+                          alpha=0.8, edgecolor='black', color=COLORS['stim'])
 
-                    ax.set_xticks(range(len(light_codes)))
-                    ax.set_xticklabels(light_codes, rotation=45, ha='right')
+                    ax.set_xticks(x_pos)
+                    ax.set_xticklabels(light_codes, fontweight='bold')
                     ax.set_xlabel('Light Code', fontweight='bold')
                 else:
                     ax.bar([0, 1], [metric_data['BASE'].mean(), metric_data['STIM'].mean()],
                           width=0.6, alpha=0.8,
-                          color=[COLORS['base'], COLORS['stim']],
-                          edgecolor='black')
+                          color=[COLORS['base'], COLORS['stim']], edgecolor='black')
                     ax.set_xticks([0, 1])
                     ax.set_xticklabels(['BASE', 'STIM'])
 
                 ax.set_ylabel('Mean Value', fontweight='bold')
-                ax.set_title(f'{metric.replace("_", " ").title()}\nBASE vs STIM',
-                            fontweight='bold')
+                ax.set_title(f'{metric.replace("_", " ").title()}', fontweight='bold')
+                ax.legend()
                 ax.grid(axis='y', alpha=0.3)
-                ax.legend(['BASE', 'STIM'], loc='upper right')
 
+            plt.suptitle(f'Light Response - Well {well}\n(BASE vs STIM by Light Code)',
+                        fontweight='bold', fontsize=14)
             plt.tight_layout()
-            plt.savefig(self.output_dir / 'light_response_comparison.png', dpi=300, bbox_inches='tight')
+            plt.savefig(self.per_well_dir / f'light_response_{well}.png', dpi=300, bbox_inches='tight')
             plt.close(fig)
 
-        # 2. Response heatmap
+        # ========== Per Color Visualizations ==========
+        if 'LIGHT_CODE' in self.response_df.columns:
+            for lc in self.response_df['LIGHT_CODE'].unique():
+                lc_data = self.response_df[self.response_df['LIGHT_CODE'] == lc]
+
+                fig, axes = plt.subplots(1, len(available), figsize=(6*len(available), 6))
+                if len(available) == 1:
+                    axes = [axes]
+
+                for idx, metric in enumerate(available):
+                    ax = axes[idx]
+                    metric_data = lc_data[lc_data['Metric'] == metric]
+
+                    if metric_data.empty:
+                        ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
+                        continue
+
+                    wells = sorted(metric_data['Well'].unique())
+                    x_pos = np.arange(len(wells))
+                    width = 0.35
+
+                    base_vals = [metric_data[metric_data['Well'] == w]['BASE'].mean() for w in wells]
+                    stim_vals = [metric_data[metric_data['Well'] == w]['STIM'].mean() for w in wells]
+
+                    ax.bar(x_pos - width/2, base_vals, width, label='BASE',
+                          alpha=0.8, edgecolor='black', color=COLORS['base'])
+                    ax.bar(x_pos + width/2, stim_vals, width, label='STIM',
+                          alpha=0.8, edgecolor='black', color=COLORS['stim'])
+
+                    ax.set_xticks(x_pos)
+                    ax.set_xticklabels(wells, rotation=45, ha='right')
+                    ax.set_xlabel('Well', fontweight='bold')
+                    ax.set_ylabel('Mean Value', fontweight='bold')
+                    ax.set_title(f'{metric.replace("_", " ").title()}', fontweight='bold')
+                    ax.legend()
+                    ax.grid(axis='y', alpha=0.3)
+
+                color_name = COLORS.get(lc, COLORS['neutral'])
+                plt.suptitle(f'Light Response - {lc}\n(BASE vs STIM by Well)',
+                            fontweight='bold', fontsize=14, color=color_name if lc in COLORS else 'black')
+                plt.tight_layout()
+                plt.savefig(self.per_color_dir / f'light_response_{lc}.png', dpi=300, bbox_inches='tight')
+                plt.close(fig)
+
+        # ========== Overall Summary Plots ==========
+        # 1. Fold change heatmap
         if 'LIGHT_CODE' in self.response_df.columns and available:
             pivot = self.response_df[self.response_df['Metric'].isin(available)].pivot_table(
                 index='LIGHT_CODE', columns='Metric', values='Fold_Change', aggfunc='mean')
@@ -419,7 +505,52 @@ class LightResponseAnalyzerPooled:
                 plt.savefig(self.output_dir / 'light_response_heatmap.png', dpi=300, bbox_inches='tight')
                 plt.close(fig)
 
+        # 2. Overall BASE vs STIM comparison
+        fig, axes = plt.subplots(1, len(available), figsize=(6*len(available), 6))
+        if len(available) == 1:
+            axes = [axes]
+
+        for idx, metric in enumerate(available):
+            ax = axes[idx]
+            metric_data = self.response_df[self.response_df['Metric'] == metric]
+
+            if 'LIGHT_CODE' in metric_data.columns:
+                light_codes = sorted(metric_data['LIGHT_CODE'].unique())
+
+                for i, lc in enumerate(light_codes):
+                    lc_data = metric_data[metric_data['LIGHT_CODE'] == lc]
+                    x = [i - 0.2, i + 0.2]
+                    y = [lc_data['BASE'].mean(), lc_data['STIM'].mean()]
+
+                    ax.bar(x, y, width=0.35, alpha=0.8,
+                          color=[COLORS['base'], COLORS['stim']],
+                          edgecolor='black')
+
+                ax.set_xticks(range(len(light_codes)))
+                ax.set_xticklabels(light_codes, rotation=45, ha='right')
+                ax.set_xlabel('Light Code', fontweight='bold')
+            else:
+                ax.bar([0, 1], [metric_data['BASE'].mean(), metric_data['STIM'].mean()],
+                      width=0.6, alpha=0.8,
+                      color=[COLORS['base'], COLORS['stim']],
+                      edgecolor='black')
+                ax.set_xticks([0, 1])
+                ax.set_xticklabels(['BASE', 'STIM'])
+
+            ax.set_ylabel('Mean Value', fontweight='bold')
+            ax.set_title(f'{metric.replace("_", " ").title()}\nBASE vs STIM',
+                        fontweight='bold')
+            ax.grid(axis='y', alpha=0.3)
+            ax.legend(['BASE', 'STIM'], loc='upper right')
+
+        plt.tight_layout()
+        plt.savefig(self.output_dir / 'light_response_comparison.png', dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
         print('  ✓ Light response visualizations complete')
+        print(f'    - Per well: {len(self.response_df["Well"].unique())} wells')
+        if 'LIGHT_CODE' in self.response_df.columns:
+            print(f'    - Per color: {len(self.response_df["LIGHT_CODE"].unique())} colors')
         return self
 
 
@@ -428,12 +559,17 @@ class LightResponseAnalyzerPooled:
 # =============================================================================
 
 class BurstAnalyzerPooled:
-    """Burst 분석"""
+    """Burst 분석 - Per Well 출력"""
 
     def __init__(self, df: pd.DataFrame, output_dir: Path):
         self.df = df
         self.output_dir = Path(output_dir) / '03_burst_analysis'
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Per well 폴더 생성
+        self.per_well_dir = self.output_dir / 'per_well'
+        self.per_well_dir.mkdir(parents=True, exist_ok=True)
+
         self.burst_df = None
         self.summary = None
 
@@ -460,28 +596,110 @@ class BurstAnalyzerPooled:
         }).reset_index()
         self.summary.columns = group_cols + ['Mean', 'Std', 'Count']
 
-        # Save
+        # Save overall
         self.burst_df.to_csv(self.output_dir / 'burst_data.csv', index=False)
         self.summary.to_csv(self.output_dir / 'burst_summary.csv', index=False)
 
+        # Per well CSV
+        for well in self.burst_df['Well'].unique():
+            well_data = self.burst_df[self.burst_df['Well'] == well]
+            well_data.to_csv(self.per_well_dir / f'burst_{well}.csv', index=False)
+
+            # Per well summary
+            well_summary = self.summary[self.summary['Well'] == well]
+            well_summary.to_csv(self.per_well_dir / f'burst_summary_{well}.csv', index=False)
+
         print(f"  ✓ Found {len(self.burst_df['Metric'].unique())} burst metrics")
+        print(f"  ✓ Per well: {self.per_well_dir}")
         return self
 
     @timer
     def visualize(self):
-        """시각화"""
+        """시각화 - Per Well"""
         if self.burst_df is None or self.burst_df.empty:
             return self
 
         # Key burst metrics
         burst_metrics = ['burst_frequency_hz', 'burst_duration_avg_s',
-                        'spikes_per_burst_avg', 'inter_burst_interval_avg_s']
+                        'spikes_per_burst_avg', 'inter_burst_interval_avg_s',
+                        'number_of_bursts', 'burst_percentage']
         available = [m for m in burst_metrics if m in self.burst_df['Metric'].unique()]
+
+        if not available:
+            # 만약 key metrics가 없으면 있는 metric들 중 상위 4개 사용
+            available = self.burst_df['Metric'].value_counts().head(4).index.tolist()
 
         if not available:
             return self
 
-        # Well comparison
+        # ========== Per Well Visualizations ==========
+        for well in self.burst_df['Well'].unique():
+            well_data = self.burst_df[self.burst_df['Well'] == well]
+
+            n_metrics = min(len(available), 4)
+            fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+            axes = axes.flatten()
+
+            for idx, metric in enumerate(available[:4]):
+                ax = axes[idx]
+                metric_data = well_data[well_data['Metric'] == metric]
+
+                if metric_data.empty:
+                    ax.text(0.5, 0.5, f'No {metric}', ha='center', va='center', transform=ax.transAxes)
+                    continue
+
+                # BASE vs STIM 비교
+                if 'BASE_STIM' in metric_data.columns:
+                    base_stim_groups = metric_data.groupby('BASE_STIM')['Value'].mean()
+
+                    if 'LIGHT_CODE' in metric_data.columns:
+                        # Light code별로 BASE vs STIM
+                        light_codes = sorted(metric_data['LIGHT_CODE'].unique())
+                        x_pos = np.arange(len(light_codes))
+                        width = 0.35
+
+                        base_vals = []
+                        stim_vals = []
+                        for lc in light_codes:
+                            lc_data = metric_data[metric_data['LIGHT_CODE'] == lc]
+                            base_vals.append(lc_data[lc_data['BASE_STIM'] == 'BASE']['Value'].mean())
+                            stim_vals.append(lc_data[lc_data['BASE_STIM'] == 'STIM']['Value'].mean())
+
+                        ax.bar(x_pos - width/2, base_vals, width, label='BASE',
+                              alpha=0.8, edgecolor='black', color=COLORS['base'])
+                        ax.bar(x_pos + width/2, stim_vals, width, label='STIM',
+                              alpha=0.8, edgecolor='black', color=COLORS['stim'])
+
+                        ax.set_xticks(x_pos)
+                        ax.set_xticklabels(light_codes, fontweight='bold')
+                        ax.set_xlabel('Light Code', fontweight='bold')
+                    else:
+                        # 단순 BASE vs STIM
+                        bars = ax.bar(['BASE', 'STIM'],
+                                     [base_stim_groups.get('BASE', 0), base_stim_groups.get('STIM', 0)],
+                                     alpha=0.8, edgecolor='black',
+                                     color=[COLORS['base'], COLORS['stim']])
+                else:
+                    # BASE_STIM 없으면 그냥 값 표시
+                    ax.bar([0], [metric_data['Value'].mean()], alpha=0.7,
+                          edgecolor='black', color=COLORS['positive'])
+
+                ax.set_ylabel('Mean Value', fontweight='bold')
+                ax.set_title(f'{metric.replace("_", " ").title()}', fontweight='bold')
+                ax.legend()
+                ax.grid(axis='y', alpha=0.3)
+
+            for idx in range(len(available[:4]), 4):
+                axes[idx].set_visible(False)
+
+            plt.suptitle(f'Burst Analysis - Well {well}\n(BASE vs STIM)',
+                        fontweight='bold', fontsize=14)
+            plt.tight_layout()
+            plt.savefig(self.per_well_dir / f'burst_{well}.png', dpi=300, bbox_inches='tight')
+            plt.close(fig)
+
+        # ========== Overall Summary ==========
+        # 1. Well comparison
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
         axes = axes.flatten()
 
@@ -491,22 +709,72 @@ class BurstAnalyzerPooled:
 
             well_means = metric_data.groupby('Well')['Value'].mean().sort_values(ascending=False)
 
+            colors_list = plt.cm.Set3(np.linspace(0, 1, len(well_means)))
             ax.bar(range(len(well_means)), well_means.values, alpha=0.7,
-                  edgecolor='black', color=COLORS['positive'])
+                  edgecolor='black', color=colors_list)
             ax.set_xticks(range(len(well_means)))
             ax.set_xticklabels(well_means.index, rotation=45, ha='right')
             ax.set_ylabel('Mean Value', fontweight='bold')
             ax.set_title(f'{metric.replace("_", " ").title()}', fontweight='bold')
             ax.grid(axis='y', alpha=0.3)
 
-        for idx in range(len(available), 4):
+        for idx in range(len(available[:4]), 4):
             axes[idx].set_visible(False)
 
+        plt.suptitle('Burst Metrics by Well (Overall)', fontweight='bold', fontsize=14)
         plt.tight_layout()
         plt.savefig(self.output_dir / 'burst_by_well.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
 
+        # 2. BASE vs STIM comparison (overall)
+        if 'BASE_STIM' in self.burst_df.columns:
+            fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+            axes = axes.flatten()
+
+            for idx, metric in enumerate(available[:4]):
+                ax = axes[idx]
+                metric_data = self.burst_df[self.burst_df['Metric'] == metric]
+
+                base_mean = metric_data[metric_data['BASE_STIM'] == 'BASE']['Value'].mean()
+                stim_mean = metric_data[metric_data['BASE_STIM'] == 'STIM']['Value'].mean()
+
+                ax.bar(['BASE', 'STIM'], [base_mean, stim_mean],
+                      alpha=0.8, edgecolor='black',
+                      color=[COLORS['base'], COLORS['stim']])
+                ax.set_ylabel('Mean Value', fontweight='bold')
+                ax.set_title(f'{metric.replace("_", " ").title()}', fontweight='bold')
+                ax.grid(axis='y', alpha=0.3)
+
+                # Fold change annotation
+                if base_mean > 0:
+                    fc = stim_mean / base_mean
+                    ax.text(0.5, max(base_mean, stim_mean) * 1.05,
+                           f'FC: {fc:.2f}x', ha='center', fontweight='bold')
+
+            for idx in range(len(available[:4]), 4):
+                axes[idx].set_visible(False)
+
+            plt.suptitle('Burst Metrics: BASE vs STIM (Overall)', fontweight='bold', fontsize=14)
+            plt.tight_layout()
+            plt.savefig(self.output_dir / 'burst_base_vs_stim.png', dpi=300, bbox_inches='tight')
+            plt.close(fig)
+
+        # 3. Heatmap (Well × Metric)
+        pivot = self.burst_df.pivot_table(index='Well', columns='Metric', values='Value', aggfunc='mean')
+        if not pivot.empty and len(pivot.columns) > 0:
+            fig, ax = plt.subplots(figsize=(max(12, len(pivot.columns) * 0.8),
+                                            max(8, len(pivot.index) * 0.5)))
+            sns.heatmap(pivot, annot=True, fmt='.2f', cmap='YlOrRd',
+                       cbar_kws={'label': 'Mean Value'}, ax=ax,
+                       linewidths=0.5, linecolor='white')
+            ax.set_title('Burst Metrics Heatmap\n(Well × Metric)', fontweight='bold', fontsize=14)
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+            plt.savefig(self.output_dir / 'burst_heatmap.png', dpi=300, bbox_inches='tight')
+            plt.close(fig)
+
         print('  ✓ Burst visualizations complete')
+        print(f'    - Per well: {len(self.burst_df["Well"].unique())} wells')
         return self
 
 
