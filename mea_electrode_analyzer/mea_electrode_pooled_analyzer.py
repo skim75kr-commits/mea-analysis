@@ -175,7 +175,7 @@ class ElectrodeDataPooler:
         group_cols = ['Well', 'Metric', 'BASE_STIM']
 
         # 추가 그룹 컬럼 (있는 경우) - DIV 정보 포함
-        for col in ['LIGHT_CODE', 'EXP_TYPE', 'DRUG', 'Plate_ID', 'DIFF_DAY', 'Differentiation_Day']:
+        for col in ['LIGHT_CODE', 'EXP_TYPE', 'DRUG', 'Plate_ID', 'DIV', 'Differentiation_Day', 'days_post_plating']:
             if col in filtered.columns:
                 group_cols.append(col)
 
@@ -348,9 +348,9 @@ class LightResponseAnalyzerPooled:
         eps = 1e-3  # 개선: 안정적인 eps 값
 
         for well in self.df['Well'].unique():
-            # DIV 정보 추출
+            # DIV 정보 추출 (DIV = Differentiation_Day + days_post_plating)
             well_data = self.df[self.df['Well'] == well]
-            div_val = well_data['DIFF_DAY'].iloc[0] if 'DIFF_DAY' in well_data.columns else np.nan
+            div_val = well_data['DIV'].iloc[0] if 'DIV' in well_data.columns else np.nan
 
             for metric in self.df['Metric'].unique():
                 # Light code별로 계산
@@ -898,16 +898,16 @@ class CombinedExcelCreator:
             pivot.to_excel(writer, sheet_name='Pivot_by_Metric')
 
             # Sheet 5: DIV Summary (분화일별 요약)
-            if 'DIFF_DAY' in self.pooled_df.columns:
-                div_summary = self.pooled_df.groupby(['DIFF_DAY', 'Metric']).agg({
+            if 'DIV' in self.pooled_df.columns:
+                div_summary = self.pooled_df.groupby(['DIV', 'Metric']).agg({
                     'Value': ['mean', 'std', 'count']
                 }).reset_index()
                 div_summary.columns = ['DIV', 'Metric', 'Mean', 'Std', 'Count']
                 div_summary.to_excel(writer, sheet_name='DIV_Summary', index=False)
 
             # Sheet 6: Well-DIV Mapping
-            if 'DIFF_DAY' in self.df.columns:
-                well_div = self.df.groupby('Well')['DIFF_DAY'].first().reset_index()
+            if 'DIV' in self.df.columns:
+                well_div = self.df.groupby('Well')['DIV'].first().reset_index()
                 well_div.columns = ['Well', 'DIV']
                 well_div = well_div.sort_values('Well')
                 well_div.to_excel(writer, sheet_name='Well_DIV_Mapping', index=False)
@@ -973,8 +973,8 @@ class PooledDashboard:
             div_vals = self.scores_df['DIV'].dropna().unique()
             if len(div_vals) > 0:
                 div_info = f" | DIV: {', '.join([str(int(d)) for d in sorted(div_vals)])}"
-        elif 'DIFF_DAY' in self.df.columns:
-            div_vals = self.df['DIFF_DAY'].dropna().unique()
+        elif 'DIV' in self.df.columns:
+            div_vals = self.df['DIV'].dropna().unique()
             if len(div_vals) > 0:
                 div_info = f" | DIV: {', '.join([str(int(d)) for d in sorted(div_vals)])}"
 
