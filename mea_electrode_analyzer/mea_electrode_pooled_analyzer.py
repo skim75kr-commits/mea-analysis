@@ -174,8 +174,8 @@ class ElectrodeDataPooler:
         # Well 단위로 집계
         group_cols = ['Well', 'Metric', 'BASE_STIM']
 
-        # 추가 그룹 컬럼 (있는 경우) - DIV 정보 포함
-        for col in ['LIGHT_CODE', 'EXP_TYPE', 'DRUG', 'Plate_ID', 'DIV', 'Differentiation_Day', 'days_post_plating']:
+        # 추가 그룹 컬럼 (있는 경우) - DIV 정보 포함 (Differentiation_Day, days_post_plating 제외)
+        for col in ['LIGHT_CODE', 'EXP_TYPE', 'DRUG', 'Plate_ID', 'DIV']:
             if col in filtered.columns:
                 group_cols.append(col)
 
