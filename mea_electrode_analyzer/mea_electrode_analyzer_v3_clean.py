@@ -208,8 +208,6 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
                 "TIME_START": meta.get("TIME_START", meta.get("TIME_START(sec)", 0)),
                 "TIME_DURATION_SEC": meta.get("TIME_DURATION(sec)",
                                              meta.get("TIME_DURATION_SEC", 0)),
-                "days_post_plating": days_post_plating,
-                "Differentiation_Day": differentiation_day,
                 "DIV": div,  # 실험당일 분화일수 (Differentiation_Day + days_post_plating)
                 "LIGHT_CODE": meta.get("LIGHT_CODE", "UNKNOWN"),
                 "INTENSITY_PCT": meta.get("INTENSITY(%)",
@@ -1393,7 +1391,7 @@ class ElectrodeResponseScorer:
                         'Electrode_ID': electrode_id,
                         'Well': well,
                         'LIGHT_CODE': light_code,
-                        'DIV': div,  # 분화일 (Well_Info의 Differentiation_Day)
+                        'DIV': div,  # 실험당일 분화일수 (Differentiation_Day + days_post_plating)
                         'Response_Score': composite_score,
                     }
 
