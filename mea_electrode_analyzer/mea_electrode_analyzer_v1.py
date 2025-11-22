@@ -93,10 +93,12 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
     df_well = pd.read_excel(file_path, sheet_name="Well_Info")
 
     meta = df_meta.iloc[0].to_dict()
-    # Well_Info: Well / Differentiation_Day
-    diff_map = dict(zip(df_well["Well"], df_well["Differentiation_Day"]))
-
-    plating_day = meta.get("Plating DAY", meta.get("PLATING_DAY", np.nan))
+    # Well_Info: Differentiation_Day = 플레이팅 시점의 분화일수
+    diff_day_map = dict(zip(df_well["Well"], df_well["Differentiation_Day"]))
+    # days_post_plating (이전 Plating_Day): 플레이팅 후 실험까지 경과일
+    days_post_plating = meta.get("days_post_plating",
+                                  meta.get("Plating DAY",
+                                  meta.get("PLATING_DAY", np.nan)))
 
     # 전극 컬럼 찾기 (Metric / Unit / Condition 제외, A1_11 같은 패턴만)
     electrode_cols = []
@@ -121,12 +123,12 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
                 continue
 
             well, elec_idx = extract_electrode_info(col)
-            diff_day0 = diff_map.get(well, np.nan)
-            diff_day = (
-                diff_day0 + plating_day
-                if pd.notna(diff_day0) and pd.notna(plating_day)
-                else np.nan
-            )
+            # Differentiation_Day = 플레이팅 시점의 분화일수
+            differentiation_day = diff_day_map.get(well, np.nan)
+            # DIV = Differentiation_Day + days_post_plating (실험당일 실제 분화일수)
+            div = (differentiation_day + days_post_plating
+                   if pd.notna(differentiation_day) and pd.notna(days_post_plating)
+                   else np.nan)
 
             rows.append(
                 {
@@ -143,9 +145,7 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
                     "TIME_DURATION_SEC": meta.get(
                         "TIME_DURATION(sec)", meta.get("TIME_DURATION_SEC", 0)
                     ),
-                    "Plating_Day": plating_day,
-                    "Differentiation_Day": diff_day0,
-                    "DIFF_DAY": diff_day,
+                    "DIV": div,  # 실험당일 분화일수 (Differentiation_Day + days_post_plating)
                     "LIGHT_CODE": meta.get("LIGHT_CODE", "UNKNOWN"),
                     "INTENSITY_PCT": meta.get(
                         "INTENSITY(%)", meta.get("INTENSITY_PCT", 0)
