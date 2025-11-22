@@ -1332,6 +1332,10 @@ class ElectrodeResponseScorer:
             # Well 정보
             well = electrode_data['Well'].iloc[0]
 
+            # DIV 정보 추출 (DIFF_DAY, Differentiation_Day)
+            diff_day = electrode_data['DIFF_DAY'].iloc[0] if 'DIFF_DAY' in electrode_data.columns else np.nan
+            differentiation_day = electrode_data['Differentiation_Day'].iloc[0] if 'Differentiation_Day' in electrode_data.columns else np.nan
+
             # 개선: 모든 LIGHT_CODE에 대해 처리 (첫 번째만이 아닌)
             light_codes = electrode_data['LIGHT_CODE'].unique() if 'LIGHT_CODE' in electrode_data.columns else ['UNKNOWN']
 
@@ -1389,6 +1393,8 @@ class ElectrodeResponseScorer:
                         'Electrode_ID': electrode_id,
                         'Well': well,
                         'LIGHT_CODE': light_code,
+                        'DIV': diff_day,  # 분화일 (DIFF_DAY)
+                        'Differentiation_Day': differentiation_day,  # Well_Info의 원본 값
                         'Response_Score': composite_score,
                     }
 
@@ -1454,7 +1460,7 @@ class ElectrodeResponseScorer:
         return self
 
     def _plot_scores_by_well(self):
-        """Well별 electrode score bargraph"""
+        """Well별 electrode score bargraph (DIV 표시 포함)"""
         wells = sorted(self.scores_df['Well'].unique())
 
         for well in wells:
@@ -1463,6 +1469,10 @@ class ElectrodeResponseScorer:
 
             if well_data.empty:
                 continue
+
+            # DIV 정보 추출
+            div_val = well_data['DIV'].iloc[0] if 'DIV' in well_data.columns and pd.notna(well_data['DIV'].iloc[0]) else None
+            div_str = f" (DIV {int(div_val)})" if div_val is not None else ""
 
             fig, ax = plt.subplots(figsize=(max(12, len(well_data)*0.5), 6))
 
@@ -1483,7 +1493,7 @@ class ElectrodeResponseScorer:
 
             ax.set_xlabel('Electrode ID', fontweight='bold', fontsize=11)
             ax.set_ylabel('Response Score (STIM/BASE ratio)', fontweight='bold', fontsize=11)
-            ax.set_title(f'Electrode Light Response Scores - Well {well}\n'
+            ax.set_title(f'Electrode Light Response Scores - Well {well}{div_str}\n'
                         f'(Sorted by Score, Higher = Better Response)',
                         fontweight='bold', fontsize=12)
             ax.grid(axis='y', alpha=0.3)
