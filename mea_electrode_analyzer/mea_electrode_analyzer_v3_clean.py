@@ -164,11 +164,12 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
     df_well = pd.read_excel(file_path, sheet_name="Well_Info")
 
     meta = df_meta.iloc[0].to_dict()
-    diff_map = dict(zip(df_well["Well"], df_well["Differentiation_Day"]))
-    # DAYS_POST_PLATING 우선, 없으면 Plating DAY 또는 PLATING_DAY
-    days_post_plating = meta.get("DAYS_POST_PLATING",
-                                 meta.get("Plating DAY",
-                                          meta.get("PLATING_DAY", np.nan)))
+    # Well_Info: Differentiation_Day = 플레이팅 시점의 분화일수
+    diff_day_map = dict(zip(df_well["Well"], df_well["Differentiation_Day"]))
+    # days_post_plating (이전 Plating_Day): 플레이팅 후 실험까지 경과일
+    days_post_plating = meta.get("days_post_plating",
+                                  meta.get("Plating DAY",
+                                  meta.get("PLATING_DAY", np.nan)))
 
     # 전극 컬럼 찾기
     electrode_cols = [c for c in df_template.columns
@@ -187,11 +188,12 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
                 continue
 
             well, elec_idx = extract_electrode_info(col)
-            diff_day0 = diff_map.get(well, np.nan)
-            # DIFF_DAY = Differentiation_Day + DAYS_POST_PLATING
-            diff_day = (diff_day0 + days_post_plating
-                       if pd.notna(diff_day0) and pd.notna(days_post_plating)
-                       else np.nan)
+            # Differentiation_Day = 플레이팅 시점의 분화일수
+            differentiation_day = diff_day_map.get(well, np.nan)
+            # DIV = Differentiation_Day + days_post_plating (실험당일 실제 분화일수)
+            div = (differentiation_day + days_post_plating
+                   if pd.notna(differentiation_day) and pd.notna(days_post_plating)
+                   else np.nan)
 
             rows.append({
                 "File": file_path.stem,
@@ -206,17 +208,16 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
                 "TIME_START": meta.get("TIME_START", meta.get("TIME_START(sec)", 0)),
                 "TIME_DURATION_SEC": meta.get("TIME_DURATION(sec)",
                                              meta.get("TIME_DURATION_SEC", 0)),
-                "DAYS_POST_PLATING": days_post_plating,
-                "Differentiation_Day": diff_day0,
-                "DIFF_DAY": diff_day,
+                "days_post_plating": days_post_plating,
+                "Differentiation_Day": differentiation_day,
+                "DIV": div,  # 실험당일 분화일수 (Differentiation_Day + days_post_plating)
                 "LIGHT_CODE": meta.get("LIGHT_CODE", "UNKNOWN"),
                 "INTENSITY_PCT": meta.get("INTENSITY(%)",
                                          meta.get("INTENSITY_PCT", 0)),
                 "EXP_TYPE": meta.get("EXP_TYPE", "UNKNOWN"),
                 "DRUG": meta.get("DRUG", "NONE"),
-                "CONCENTRATION_uM": meta.get("CONCENTRATION (uM)",
-                                            meta.get("CONCENTRATION (mM)",
-                                                    meta.get("CONCENTRATION_MM", 0))),
+                "CONCENTRATION_mM": meta.get("CONCENTRATION (mM)",
+                                            meta.get("CONCENTRATION_MM", 0)),
             })
 
     return pd.DataFrame(rows)
@@ -1332,9 +1333,8 @@ class ElectrodeResponseScorer:
             # Well 정보
             well = electrode_data['Well'].iloc[0]
 
-            # DIV 정보 추출 (DIFF_DAY, Differentiation_Day)
-            diff_day = electrode_data['DIFF_DAY'].iloc[0] if 'DIFF_DAY' in electrode_data.columns else np.nan
-            differentiation_day = electrode_data['Differentiation_Day'].iloc[0] if 'Differentiation_Day' in electrode_data.columns else np.nan
+            # DIV 정보 추출 (DIV 컬럼 직접 사용)
+            div = electrode_data['DIV'].iloc[0] if 'DIV' in electrode_data.columns else np.nan
 
             # 개선: 모든 LIGHT_CODE에 대해 처리 (첫 번째만이 아닌)
             light_codes = electrode_data['LIGHT_CODE'].unique() if 'LIGHT_CODE' in electrode_data.columns else ['UNKNOWN']
@@ -1393,8 +1393,7 @@ class ElectrodeResponseScorer:
                         'Electrode_ID': electrode_id,
                         'Well': well,
                         'LIGHT_CODE': light_code,
-                        'DIV': diff_day,  # 분화일 (DIFF_DAY)
-                        'Differentiation_Day': differentiation_day,  # Well_Info의 원본 값
+                        'DIV': div,  # 분화일 (Well_Info의 Differentiation_Day)
                         'Response_Score': composite_score,
                     }
 

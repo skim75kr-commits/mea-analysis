@@ -526,7 +526,64 @@ class DrugEffectVisualizer:
             except Exception as e:
                 print(f"  ⚠ {func.__name__}: {e}")
 
+        # Per-color 개별 시각화
+        self._create_per_color_plots()
+
         print("  ✓ All visualizations complete")
+
+    def _create_per_color_plots(self):
+        """LIGHT_CODE별 개별 시각화"""
+        if self.drug_effect.empty or 'LIGHT_CODE' not in self.drug_effect.columns:
+            return
+
+        per_color_dir = self.output_dir / 'per_color'
+        per_color_dir.mkdir(parents=True, exist_ok=True)
+
+        key_metrics = ['number_of_spikes', 'mean_firing_rate_hz', 'burst_frequency_hz']
+        available = [m for m in key_metrics if m in self.drug_effect['Metric'].unique()]
+        if not available:
+            available = list(self.drug_effect['Metric'].unique()[:3])
+
+        for lc in self.drug_effect['LIGHT_CODE'].unique():
+            lc_data = self.drug_effect[self.drug_effect['LIGHT_CODE'] == lc]
+
+            if lc_data.empty:
+                continue
+
+            # Per-color comparison plot
+            n_metrics = len(available)
+            fig, axes = plt.subplots(1, n_metrics, figsize=(5*n_metrics, 5))
+            if n_metrics == 1:
+                axes = [axes]
+
+            for idx, metric in enumerate(available):
+                ax = axes[idx]
+                metric_df = lc_data[lc_data['Metric'] == metric]
+
+                if metric_df.empty:
+                    ax.text(0.5, 0.5, 'No data', ha='center', va='center')
+                    continue
+
+                # Box plot: CTRL vs DRUG
+                ctrl_lr = metric_df['CTRL_LR_Abs'].values
+                drug_lr = metric_df['DRUG_LR_Abs'].values
+
+                bp = ax.boxplot([ctrl_lr, drug_lr], labels=['CONTROL', 'DRUG'],
+                               patch_artist=True, showmeans=True)
+                bp['boxes'][0].set_facecolor('#5DADE2')
+                bp['boxes'][1].set_facecolor('#EC7063')
+
+                ax.set_ylabel('Light Response', fontweight='bold')
+                ax.set_title(f'{metric.replace("_", " ").title()}', fontweight='bold')
+                ax.grid(axis='y', alpha=0.3)
+
+            plt.suptitle(f'Drug Effect on Light Response - {lc}',
+                        fontweight='bold', fontsize=14)
+            plt.tight_layout()
+            plt.savefig(per_color_dir / f'drug_effect_{lc}.png', dpi=300, bbox_inches='tight')
+            plt.close(fig)
+
+        print(f"  ✓ Per-color plots: {per_color_dir}")
 
     def plot_lr_comparison_overview(self):
         """Light Response 비교 개요 (CONTROL vs DRUG)"""
@@ -1091,8 +1148,14 @@ class DrugEffectExcelExporter:
                 per_well_summary = self._create_per_well_summary()
                 per_well_summary.to_excel(writer, sheet_name='Per_Well_Summary', index=False)
 
-        # 개선: Per-well CSV 파일 출력
+            # Sheet 10: Per Color Summary (LIGHT_CODE별 요약)
+            if not self.drug_effect.empty and 'LIGHT_CODE' in self.drug_effect.columns:
+                per_color_summary = self._create_per_color_summary()
+                per_color_summary.to_excel(writer, sheet_name='Per_Color_Summary', index=False)
+
+        # 개선: Per-well, Per-color CSV 파일 출력
         self._save_per_well_csv()
+        self._save_per_color_csv()
 
         print(f"  ✓ Saved: {self.output_path.name}")
 
@@ -1109,6 +1172,34 @@ class DrugEffectExcelExporter:
             well_data.to_csv(per_well_dir / f'drug_effect_{well}.csv', index=False)
 
         print(f"  ✓ Per-well CSV: {per_well_dir}")
+
+    def _save_per_color_csv(self):
+        """Per-color (LIGHT_CODE별) CSV 파일 저장"""
+        if self.drug_effect.empty:
+            return
+
+        if 'LIGHT_CODE' not in self.drug_effect.columns:
+            return
+
+        per_color_dir = self.output_path.parent / 'per_color'
+        per_color_dir.mkdir(parents=True, exist_ok=True)
+
+        for lc in self.drug_effect['LIGHT_CODE'].unique():
+            lc_data = self.drug_effect[self.drug_effect['LIGHT_CODE'] == lc]
+            lc_data.to_csv(per_color_dir / f'drug_effect_{lc}.csv', index=False)
+
+            # Per-color summary
+            summary = lc_data.groupby('Metric').agg({
+                'DrugEffect_LR_Abs': ['mean', 'std', 'count'],
+                'CTRL_LR_Abs': 'mean',
+                'DRUG_LR_Abs': 'mean',
+                'DrugEffect_Direction': lambda x: (x == 'Enhanced').sum()
+            }).reset_index()
+            summary.columns = ['Metric', 'DrugEffect_Mean', 'DrugEffect_Std', 'N',
+                              'CTRL_LR_Mean', 'DRUG_LR_Mean', 'N_Enhanced']
+            summary.to_csv(per_color_dir / f'drug_effect_summary_{lc}.csv', index=False)
+
+        print(f"  ✓ Per-color CSV: {per_color_dir}")
 
     def _create_per_well_summary(self) -> pd.DataFrame:
         """Well별 요약 테이블"""
@@ -1131,6 +1222,34 @@ class DrugEffectExcelExporter:
             results.append(result)
 
         return pd.DataFrame(results).sort_values('Well')
+
+    def _create_per_color_summary(self) -> pd.DataFrame:
+        """LIGHT_CODE별 요약 테이블"""
+        results = []
+
+        for lc in self.drug_effect['LIGHT_CODE'].unique():
+            lc_df = self.drug_effect[self.drug_effect['LIGHT_CODE'] == lc]
+
+            for metric in lc_df['Metric'].unique():
+                metric_df = lc_df[lc_df['Metric'] == metric]
+
+                result = {
+                    'LIGHT_CODE': lc,
+                    'Metric': metric,
+                    'N_Electrodes': metric_df['Electrode_ID'].nunique(),
+                    'CTRL_LR_Mean': metric_df['CTRL_LR_Abs'].mean(),
+                    'CTRL_LR_Std': metric_df['CTRL_LR_Abs'].std(),
+                    'DRUG_LR_Mean': metric_df['DRUG_LR_Abs'].mean(),
+                    'DRUG_LR_Std': metric_df['DRUG_LR_Abs'].std(),
+                    'DrugEffect_Mean': metric_df['DrugEffect_LR_Abs'].mean(),
+                    'DrugEffect_Std': metric_df['DrugEffect_LR_Abs'].std(),
+                    'N_Enhanced': (metric_df['DrugEffect_Direction'] == 'Enhanced').sum(),
+                    'N_Suppressed': (metric_df['DrugEffect_Direction'] == 'Suppressed').sum(),
+                    'Pct_Enhanced': (metric_df['DrugEffect_Direction'] == 'Enhanced').mean() * 100,
+                }
+                results.append(result)
+
+        return pd.DataFrame(results).sort_values(['LIGHT_CODE', 'Metric'])
 
     def _create_summary(self) -> pd.DataFrame:
         """요약 테이블 생성"""
