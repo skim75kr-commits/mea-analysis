@@ -1,45 +1,42 @@
 {
   "metadata": {
-    "PLATE_ID": "P307",
-    "INTENSITY(%)": 5,
-    "EXP_TYPE": "CONTROL",
-    "DRUG": "NONE",
-    "CONCENTRATION (mM)": 0,
-    "Plating DAY": 17
+    "PLATE_ID": "P828",
+    "INTENSITY(%)": 4,
+    "EXP_TYPE": "DRUG",
+    "DRUG": "8-Br-cGAMP",
+    "CONCENTRATION (uM)": 1000,
+    "PLATING_DATE": "2025-08-28",
+    "EXPERIMENT_DATE": "2025-09-08",
+    "DAYS_POST_PLATING": 11
   },
   "time_settings": {
     "base": {
-      "TIME_DURATION(sec)": 60,
+      "TIME_DURATION(sec)": 30,
       "TIME_START": 0
     },
     "stim": {
-      "TIME_DURATION(sec)": 60,
-      "TIME_START": 60
-    },
-    "washout": {
-      "TIME_DURATION(sec)": 60,
-      "TIME_START": 120
+      "TIME_DURATION(sec)": 30,
+      "TIME_START": 30
     }
   },
   "folder_mapping": {
-    "0-60": "BASE",
-    "60-120": "STIM",
-    "120-180": "WASHOUT"
+    "0-30": "BASE",
+    "30-60": "STIM"
   },
   "filtering": {
     "min_spike_count": 10,
     "min_data_percentage": 0.5
   },
   "well_info": {
-    "A1": {"Differentiation_Day": 183, "Notes": ""},
-    "A2": {"Differentiation_Day": 118, "Notes": ""},
-    "A3": {"Differentiation_Day": 212, "Notes": ""},
+    "A1": {"Differentiation_Day": null, "Notes": ""},
+    "A2": {"Differentiation_Day": null, "Notes": ""},
+    "A3": {"Differentiation_Day": null, "Notes": ""},
     "A4": {"Differentiation_Day": null, "Notes": ""},
     "A5": {"Differentiation_Day": null, "Notes": ""},
     "A6": {"Differentiation_Day": null, "Notes": ""},
-    "B1": {"Differentiation_Day": 183, "Notes": ""},
-    "B2": {"Differentiation_Day": 118, "Notes": ""},
-    "B3": {"Differentiation_Day": 212, "Notes": ""},
+    "B1": {"Differentiation_Day": null, "Notes": ""},
+    "B2": {"Differentiation_Day": null, "Notes": ""},
+    "B3": {"Differentiation_Day": null, "Notes": ""},
     "B4": {"Differentiation_Day": null, "Notes": ""},
     "B5": {"Differentiation_Day": null, "Notes": ""},
     "B6": {"Differentiation_Day": null, "Notes": ""},
@@ -51,8 +48,8 @@
     "C6": {"Differentiation_Day": null, "Notes": ""},
     "D1": {"Differentiation_Day": null, "Notes": ""},
     "D2": {"Differentiation_Day": null, "Notes": ""},
-    "D3": {"Differentiation_Day": null, "Notes": ""},
-    "D4": {"Differentiation_Day": null, "Notes": ""},
+    "D3": {"Differentiation_Day": 52, "Notes": ""},
+    "D4": {"Differentiation_Day": 52, "Notes": ""},
     "D5": {"Differentiation_Day": null, "Notes": ""},
     "D6": {"Differentiation_Day": null, "Notes": ""}
   }

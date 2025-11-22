@@ -165,7 +165,10 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
 
     meta = df_meta.iloc[0].to_dict()
     diff_map = dict(zip(df_well["Well"], df_well["Differentiation_Day"]))
-    plating_day = meta.get("Plating DAY", meta.get("PLATING_DAY", np.nan))
+    # DAYS_POST_PLATING 우선, 없으면 Plating DAY 또는 PLATING_DAY
+    days_post_plating = meta.get("DAYS_POST_PLATING",
+                                 meta.get("Plating DAY",
+                                          meta.get("PLATING_DAY", np.nan)))
 
     # 전극 컬럼 찾기
     electrode_cols = [c for c in df_template.columns
@@ -185,8 +188,9 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
 
             well, elec_idx = extract_electrode_info(col)
             diff_day0 = diff_map.get(well, np.nan)
-            diff_day = (diff_day0 + plating_day
-                       if pd.notna(diff_day0) and pd.notna(plating_day)
+            # DIFF_DAY = Differentiation_Day + DAYS_POST_PLATING
+            diff_day = (diff_day0 + days_post_plating
+                       if pd.notna(diff_day0) and pd.notna(days_post_plating)
                        else np.nan)
 
             rows.append({
@@ -202,7 +206,7 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
                 "TIME_START": meta.get("TIME_START", meta.get("TIME_START(sec)", 0)),
                 "TIME_DURATION_SEC": meta.get("TIME_DURATION(sec)",
                                              meta.get("TIME_DURATION_SEC", 0)),
-                "Plating_Day": plating_day,
+                "DAYS_POST_PLATING": days_post_plating,
                 "Differentiation_Day": diff_day0,
                 "DIFF_DAY": diff_day,
                 "LIGHT_CODE": meta.get("LIGHT_CODE", "UNKNOWN"),
@@ -210,8 +214,9 @@ def load_single_electrode_excel(path: str) -> pd.DataFrame:
                                          meta.get("INTENSITY_PCT", 0)),
                 "EXP_TYPE": meta.get("EXP_TYPE", "UNKNOWN"),
                 "DRUG": meta.get("DRUG", "NONE"),
-                "CONCENTRATION_mM": meta.get("CONCENTRATION (mM)",
-                                            meta.get("CONCENTRATION_MM", 0)),
+                "CONCENTRATION_uM": meta.get("CONCENTRATION (uM)",
+                                            meta.get("CONCENTRATION (mM)",
+                                                    meta.get("CONCENTRATION_MM", 0))),
             })
 
     return pd.DataFrame(rows)
