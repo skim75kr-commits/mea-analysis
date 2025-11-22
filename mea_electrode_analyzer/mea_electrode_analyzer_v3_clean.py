@@ -239,9 +239,19 @@ class ElectrodeFormatLoader:
         if self.use_cache and cache_file.exists():
             print(f"[LOAD] Loading from cache: {cache_file.name}")
             df_all = pd.read_parquet(cache_file)
-            print(f"[LOAD] Cached: {len(df_all)} rows, "
-                  f"{df_all['Electrode_ID'].nunique()} electrodes")
-            return df_all
+
+            # 스키마 검증: DIV 컬럼이 있고, 불필요한 컬럼이 없는지 확인
+            has_div = 'DIV' in df_all.columns
+            has_old_cols = any(col in df_all.columns for col in
+                             ['Differentiation_Day', 'days_post_plating', 'Plating_Day', 'DIFF_DAY'])
+
+            if not has_div or has_old_cols:
+                print(f"[LOAD] Cache schema outdated, regenerating...")
+                cache_file.unlink()  # 캐시 삭제
+            else:
+                print(f"[LOAD] Cached: {len(df_all)} rows, "
+                      f"{df_all['Electrode_ID'].nunique()} electrodes")
+                return df_all
 
         files = [f for f in self.input_dir.glob("*.xlsx")
                 if not f.name.startswith("~$")]
